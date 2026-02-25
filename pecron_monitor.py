@@ -18,7 +18,7 @@ Usage:
     python pecron_monitor.py --homeassistant # Start with Home Assistant MQTT bridge
 """
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 import argparse
 import base64
@@ -675,7 +675,7 @@ class HomeAssistantBridge:
 # ===========================================================================
 
 class PecronMonitor:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, no_ble: bool = False):
         self.config = config
         self.region = REGIONS[config["region"]]
         self.token_data = None
@@ -690,6 +690,7 @@ class PecronMonitor:
         self.local_transports = {}  # device_key → LocalTransport
         self.ble_transports = {}   # device_key → BLETransport
         self.offline_mode = False  # Set to True when running in local-only mode
+        self.no_ble = no_ble  # Skip BLE transport entirely
 
         # Automation rules
         self.rules = config.get("rules", [])
@@ -804,10 +805,16 @@ class PecronMonitor:
                     log.warning("Failed to set up local transport for %s: %s", dk, e)
 
         # Set up BLE transports
-        if HAS_BLE:
+        if self.no_ble:
+            log.info("BLE disabled (--no-ble flag)")
+        if HAS_BLE and not self.no_ble:
             for device in self.devices:
                 dk = device["device_key"]
                 cfg = configured.get(dk, {})
+                # Per-device BLE disable: set ble: false in config.yaml
+                if cfg.get("ble") is False:
+                    log.info("BLE disabled for %s (ble: false in config)", dk)
+                    continue
                 ble_addr = cfg.get("ble_address")
                 ble_enabled = cfg.get("ble", False)
                 if not ble_addr and not ble_enabled:
@@ -1690,6 +1697,8 @@ def main():
     parser.add_argument("--setup", action="store_true", help="Run setup wizard")
     parser.add_argument("--local", action="store_true",
                         help="Run in offline/local-only mode (no cloud, uses cached config)")
+    parser.add_argument("--no-ble", action="store_true",
+                        help="Disable Bluetooth (BLE) transport — use WiFi TCP or cloud only")
     parser.add_argument("--status", action="store_true", help="One-shot status check")
     parser.add_argument("--ac", choices=["on", "off"], help="Turn AC output on/off")
     parser.add_argument("--dc", choices=["on", "off"], help="Turn DC output on/off")
@@ -1722,7 +1731,7 @@ def main():
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    monitor = PecronMonitor(config)
+    monitor = PecronMonitor(config, no_ble=args.no_ble)
 
     def _signal_handler(sig, frame):
         monitor.stop()
@@ -1748,7 +1757,7 @@ def main():
         return
 
     if args.raw:
-        monitor = PecronMonitor(config)
+        monitor = PecronMonitor(config, no_ble=args.no_ble)
         monitor.authenticate()
         monitor.connect_mqtt()
         time.sleep(3)
@@ -1775,7 +1784,7 @@ def main():
             except ValueError:
                 print(f"Invalid value: {val}")
                 sys.exit(1)
-        monitor = PecronMonitor(config)
+        monitor = PecronMonitor(config, no_ble=args.no_ble)
         monitor.authenticate()
         monitor.connect_mqtt()
         time.sleep(3)
@@ -1858,7 +1867,7 @@ def main():
         # Step 4: MQTT test
         print("\n4. MQTT connectivity test...")
         print("   Connecting and waiting 15 seconds for data...\n")
-        monitor = PecronMonitor(config)
+        monitor = PecronMonitor(config, no_ble=args.no_ble)
         monitor.authenticate()
         monitor.connect_mqtt()
         time.sleep(3)

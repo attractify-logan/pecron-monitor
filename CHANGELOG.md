@@ -4,6 +4,16 @@ All notable changes to pecron-monitor are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] — 2026-02-25
+
+### Added
+- `--no-ble` flag to disable Bluetooth transport entirely
+- Per-device `ble: false` config option to disable BLE for specific devices
+- Log message when BLE is disabled
+
+### Fixed
+- E300LFP AC output being toggled off intermittently when BLE is enabled (#3) — BLE connection appears to cause firmware side effects on some models; `--no-ble` or `ble: false` provides a workaround
+
 ## [0.5.0] — 2026-02-25
 
 ### Added

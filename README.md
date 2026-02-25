@@ -1,6 +1,6 @@
 # Pecron Battery Monitor
 
-**v0.5.0** · [Changelog](CHANGELOG.md)
+**v0.5.1** · [Changelog](CHANGELOG.md)
 
 Real-time monitoring and control for Pecron portable power stations — no phone required.
 
