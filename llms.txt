@@ -4,7 +4,7 @@
 
 ## What this project does
 
-This is a standalone Python application that monitors and controls Pecron portable power stations (battery generators). It connects directly to devices over local WiFi (TCP port 6607, AES-CBC encrypted) with automatic cloud MQTT fallback. Works offline for vanlife/off-grid use. Replaces the need for the Pecron phone app.
+This is a standalone Python application that monitors and controls Pecron portable power stations (battery generators). It connects directly to devices over local WiFi (TCP port 6607, AES-CBC encrypted), Bluetooth Low Energy, or cloud MQTT — with automatic fallback between all three. Supports a fully offline/local-only mode (`--local` flag) where no internet is required after initial setup. Works offline for vanlife/off-grid use, and can be firewalled from the internet entirely. Replaces the need for the Pecron phone app.
 
 ## Key capabilities
 
@@ -20,6 +20,9 @@ This is a standalone Python application that monitors and controls Pecron portab
 - **Bluetooth Low Energy** — zero infrastructure, works within ~30ft, ideal for vanlife
 - **WiFi TCP** (port 6607) — same network, no internet needed
 - **Cloud MQTT** — remote monitoring from anywhere
+- **Offline/local-only mode** (`--local`) — run without any internet after initial setup; auth_key and TSL are cached in config.yaml
+- **Graceful offline fallback** — auto-detects when cloud is unavailable and switches to local transport
+- Clear data source logging showing where each reading comes from (BLE / LOCAL TCP / CLOUD MQTT / REST API)
 - No phone or Bluetooth required
 
 ## Supported devices

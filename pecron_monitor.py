@@ -6,6 +6,7 @@ via local TCP (LAN) with cloud MQTT fallback. Works with any Pecron power statio
 Usage:
     python pecron_monitor.py --setup        # Interactive setup wizard
     python pecron_monitor.py                # Start monitoring
+    python pecron_monitor.py --local        # Run in offline/local-only mode (no cloud)
     python pecron_monitor.py --status       # One-shot status check
     python pecron_monitor.py --ac on        # Turn AC output on
     python pecron_monitor.py --ac off       # Turn AC output off
@@ -25,6 +26,7 @@ import logging
 import os
 import secrets
 import signal
+import socket
 import string
 import struct
 import sys
@@ -678,12 +680,14 @@ class PecronMonitor:
         self.mqtt_client = None
         self.devices = []
         self.latest_data = {}
+        self.data_sources = {}  # device_key → "BLE" | "LOCAL TCP" | "CLOUD MQTT" | "REST API"
         self.last_alert = {}
         self._packet_id = 0
         self._running = False
         self.ha_bridge = None
         self.local_transports = {}  # device_key → LocalTransport
         self.ble_transports = {}   # device_key → BLETransport
+        self.offline_mode = False  # Set to True when running in local-only mode
 
         # Automation rules
         self.rules = config.get("rules", [])
@@ -692,14 +696,87 @@ class PecronMonitor:
         self._packet_id = (self._packet_id + 1) % 65535
         return self._packet_id
 
-    def authenticate(self):
-        log.info("Logging in to Pecron cloud (%s)...", self.region["name"])
-        self.token_data = login(self.config["email"], self.config["password"], self.region)
-        log.info("Logged in as %s", self.token_data["uid"])
-        log.info("Resolving devices...")
-        self.devices = resolve_devices(self.config, self.token_data["token"], self.region)
-        if not self.devices:
-            raise RuntimeError("No valid devices found.")
+    def authenticate(self, force_offline: bool = False):
+        """Authenticate and set up transports.
+
+        Args:
+            force_offline: If True, skip cloud login and use cached config only.
+                          Auto-detected when all devices have local credentials.
+        """
+        # Check if we can run fully offline
+        can_offline = self._check_offline_capable()
+
+        if force_offline:
+            if not can_offline:
+                raise RuntimeError(
+                    "Cannot run in offline mode: missing required fields.\n"
+                    "Each device needs: lan_ip or ble_address, auth_key, product_key, device_key.\n"
+                    "Run --setup first to fetch and cache these credentials."
+                )
+            self.offline_mode = True
+            log.info("🔒 OFFLINE MODE — using cached credentials from config.yaml")
+            self._build_devices_from_config()
+        elif not force_offline and can_offline:
+            # Try cloud first, graceful offline fallback
+            try:
+                log.info("Logging in to Pecron cloud (%s)...", self.region["name"])
+                self.token_data = login(self.config["email"], self.config["password"], self.region)
+                log.info("Logged in as %s", self.token_data["uid"])
+                log.info("Resolving devices...")
+                self.devices = resolve_devices(self.config, self.token_data["token"], self.region)
+                if not self.devices:
+                    raise RuntimeError("No valid devices found.")
+            except Exception as e:
+                log.warning("Cloud login failed (%s), falling back to offline mode", e)
+                self.offline_mode = True
+                self._build_devices_from_config()
+        else:
+            # Normal cloud-first mode
+            log.info("Logging in to Pecron cloud (%s)...", self.region["name"])
+            self.token_data = login(self.config["email"], self.config["password"], self.region)
+            log.info("Logged in as %s", self.token_data["uid"])
+            log.info("Resolving devices...")
+            self.devices = resolve_devices(self.config, self.token_data["token"], self.region)
+            if not self.devices:
+                raise RuntimeError("No valid devices found.")
+
+    def _check_offline_capable(self) -> bool:
+        """Check if all devices have the required fields for offline operation."""
+        configured = self.config.get("devices", [])
+        if not configured:
+            return False
+        for d in configured:
+            has_transport = d.get("lan_ip") or d.get("ble_address") or d.get("ble")
+            has_auth = d.get("auth_key")
+            has_ids = d.get("product_key") and d.get("device_key")
+            if not (has_transport and has_auth and has_ids):
+                return False
+        return True
+
+    def _build_devices_from_config(self):
+        """Build device list from config.yaml when running offline."""
+        configured = self.config.get("devices", [])
+        if not configured:
+            raise RuntimeError("No devices in config.yaml")
+
+        for d in configured:
+            pk = d["product_key"]
+            dk = d["device_key"]
+            name = d.get("name", "Unknown")
+
+            # Load cached TSL if available, otherwise use defaults
+            controls = d.get("tsl_cache", DEFAULT_CONTROLS)
+
+            self.devices.append({
+                "product_key": pk,
+                "device_key": dk,
+                "device_name": name,
+                "product_name": name,
+                "controls": controls,
+            })
+            log.info("  📦 Loaded from config: %s (pk=%s, dk=%s)", name, pk, dk)
+
+        log.info("Loaded %d device(s) from config", len(self.devices))
 
         # Set up local transports for devices with LAN IPs
         if HAS_LOCAL:
@@ -806,7 +883,7 @@ class PecronMonitor:
             kv = payload["data"].get("kv", {})
             if kv:
                 self.latest_data[device_key] = kv
-                self._process_data(device_key, kv)
+                self._process_data(device_key, kv, source="CLOUD MQTT")
             else:
                 log.debug("bus_ message with empty kv: %s", list(payload["data"].keys()))
         elif topic_suffix == "onl_" and "data" in payload:
@@ -834,7 +911,14 @@ class PecronMonitor:
 
     # --- Data processing ---
 
-    def _process_data(self, device_key: str, kv: dict):
+    def _process_data(self, device_key: str, kv: dict, source: str = "UNKNOWN"):
+        """Process device data and log the source.
+
+        Args:
+            device_key: Device key
+            kv: Data dict
+            source: One of "BLE", "LOCAL TCP", "CLOUD MQTT", "REST API"
+        """
         battery_pct = int(_get_kv(kv, SENSOR_FIELDS["battery_percent"], -1))
         voltage = float(_get_kv(kv, SENSOR_FIELDS["voltage"], 0))
         temp = int(_get_kv(kv, SENSOR_FIELDS["temperature"], 0))
@@ -848,9 +932,12 @@ class PecronMonitor:
                       device_key, battery_pct, voltage)
             return
 
-        log.info("🔋 %s%% | %.1fV | %d°C | ⚡ In:%dW Out:%dW | ⏱ %dh%dm",
+        # Track data source
+        self.data_sources[device_key] = source
+
+        log.info("🔋 %s%% | %.1fV | %d°C | ⚡ In:%dW Out:%dW | ⏱ %dh%dm [via %s]",
                  battery_pct, voltage, temp, total_in, total_out,
-                 remain // 60, remain % 60)
+                 remain // 60, remain % 60, source)
 
         # Publish to Home Assistant
         if self.ha_bridge:
@@ -1046,7 +1133,7 @@ class PecronMonitor:
         for device in self.devices:
             dk = device["device_key"]
 
-            # Priority: BLE → TCP/WiFi → Cloud MQTT
+            # Priority: BLE → TCP/WiFi → Cloud MQTT → REST API
 
             # Try BLE first (no infrastructure needed)
             ble = self.ble_transports.get(dk)
@@ -1060,9 +1147,9 @@ class PecronMonitor:
                     try:
                         kv = ble.read_status()
                         if kv:
-                            log.debug("Got BLE data for %s", dk)
+                            log.debug("Got status via BLE for %s", dk)
                             self.latest_data[dk] = kv
-                            self._process_data(dk, kv)
+                            self._process_data(dk, kv, source="BLE")
                             continue
                     except Exception as e:
                         log.warning("BLE read failed for %s: %s", dk, e)
@@ -1076,14 +1163,14 @@ class PecronMonitor:
                     try:
                         kv = lt.read_status()
                         if kv:
-                            log.debug("Got local TCP data for %s", dk)
+                            log.debug("Got status via LOCAL TCP for %s", dk)
                             self.latest_data[dk] = kv
-                            self._process_data(dk, kv)
+                            self._process_data(dk, kv, source="LOCAL TCP")
                             continue
                     except Exception as e:
                         log.warning("Local TCP read failed for %s: %s", dk, e)
 
-            # Try cloud MQTT first
+            # Try cloud MQTT (request data - actual response arrives via _on_message)
             if self.mqtt_client:
                 cid = self._channel_id(device)
                 pkt = build_ttlv_read(self._next_packet_id())
@@ -1094,15 +1181,16 @@ class PecronMonitor:
 
             # If we haven't received MQTT data for this device yet, try REST API
             if dk not in self.latest_data:
-                log.debug("No MQTT data for %s yet, trying REST API fallback...", dk)
-                kv = get_device_properties_rest(
-                    self.token_data["token"], self.region,
-                    device["product_key"], dk
-                )
-                if kv:
-                    log.info("Got data via REST API for %s", dk)
-                    self.latest_data[dk] = kv
-                    self._process_data(dk, kv)
+                if self.token_data:  # Only available if not in offline mode
+                    log.debug("No MQTT data for %s yet, trying REST API fallback...", dk)
+                    kv = get_device_properties_rest(
+                        self.token_data["token"], self.region,
+                        device["product_key"], dk
+                    )
+                    if kv:
+                        log.info("Got status via REST API for %s", dk)
+                        self.latest_data[dk] = kv
+                        self._process_data(dk, kv, source="REST API")
 
     def _token_needs_refresh(self) -> bool:
         if not self.token_data:
@@ -1112,6 +1200,10 @@ class PecronMonitor:
     # --- MQTT connection ---
 
     def connect_mqtt(self):
+        if self.offline_mode:
+            log.info("Offline mode — skipping MQTT connection")
+            return
+
         client_id = f"qu_{self.token_data['uid']}_{int(time.time() * 1000)}"
         self.mqtt_client = mqtt.Client(
             client_id=client_id, transport="websockets",
@@ -1130,9 +1222,9 @@ class PecronMonitor:
 
     # --- Main loop ---
 
-    def run(self, enable_ha=False):
+    def run(self, enable_ha=False, force_offline=False):
         self._running = True
-        self.authenticate()
+        self.authenticate(force_offline=force_offline)
         self.connect_mqtt()
 
         if enable_ha:
@@ -1179,11 +1271,14 @@ class PecronMonitor:
         if code:
             self.send_bool_control(device_key, code, on)
 
-    def one_shot_command(self, ac=None, dc=None):
+    def one_shot_command(self, ac=None, dc=None, force_offline=False):
         """Connect, send a command, verify, and exit."""
-        self.authenticate()
-        self.connect_mqtt()
-        time.sleep(3)
+        self.authenticate(force_offline=force_offline)
+        if not self.offline_mode:
+            self.connect_mqtt()
+            time.sleep(3)
+        else:
+            time.sleep(1)  # Give local transports time to connect
 
         for device in self.devices:
             dk = device["device_key"]
@@ -1202,22 +1297,26 @@ class PecronMonitor:
             dc_state = "ON" if kv.get("dc_switch_hm") else "OFF"
             print(f"Device {dk}: AC={ac_state} DC={dc_state}")
 
-        self.mqtt_client.loop_stop()
-        self.mqtt_client.disconnect()
+        if self.mqtt_client:
+            self.mqtt_client.loop_stop()
+            self.mqtt_client.disconnect()
 
-    def status_once(self):
-        self.authenticate()
-        self.connect_mqtt()
-        time.sleep(3)
+    def status_once(self, force_offline: bool = False):
+        self.authenticate(force_offline=force_offline)
+        if not self.offline_mode:
+            self.connect_mqtt()
+            time.sleep(3)
         self._request_status()
         time.sleep(5)
 
         for dk, kv in self.latest_data.items():
             remain = int(_get_kv(kv, SENSOR_FIELDS["remain_time"], 0))
             packs = kv.get("charging_pack_data_jdb", [])
+            source = self.data_sources.get(dk, "UNKNOWN")
 
             print(f"\n{'=' * 50}")
             print(f"Device: {dk}")
+            print(f"Connection: {source}")
             print(f"{'=' * 50}")
             print(f"Battery:       {_get_kv(kv, SENSOR_FIELDS['battery_percent'], '?')}%")
             print(f"Voltage:       {float(_get_kv(kv, SENSOR_FIELDS['voltage'], 0)):.1f}V")
@@ -1241,8 +1340,9 @@ class PecronMonitor:
         if not self.latest_data:
             print("No data received — device may be offline.")
 
-        self.mqtt_client.loop_stop()
-        self.mqtt_client.disconnect()
+        if self.mqtt_client:
+            self.mqtt_client.loop_stop()
+            self.mqtt_client.disconnect()
 
     def stop(self):
         self._running = False
@@ -1285,8 +1385,11 @@ def _scan_lan_for_pecron(subnet: str = None, timeout: float = 0.3) -> list:
     return results
 
 
-def _setup_lan_discovery(devices: list, token: str, region: dict):
-    """Interactive LAN setup: scan network, match devices, fetch auth keys."""
+def _setup_lan_discovery(devices: list, token: str, region: dict) -> list:
+    """Interactive LAN setup: scan network, match devices, fetch auth keys.
+
+    Returns the modified devices list with lan_ip and auth_key added.
+    """
     found_ips = _scan_lan_for_pecron()
 
     if not found_ips:
@@ -1295,7 +1398,7 @@ def _setup_lan_discovery(devices: list, token: str, region: dict):
         if manual_ip:
             found_ips = [manual_ip]
         else:
-            return
+            return devices
 
     for device in devices:
         dk = device["device_key"]
@@ -1326,6 +1429,7 @@ def _setup_lan_discovery(devices: list, token: str, region: dict):
             print("  Local monitoring will fetch the key on next startup (requires internet).")
 
     print("  LAN configuration complete!")
+    return devices
 
 
 def setup_wizard():
@@ -1457,6 +1561,22 @@ def setup_wizard():
     if not devices:
         print("⚠️  No devices added. You can add them manually to config.yaml later.")
 
+    # Fetch TSL for each device and cache it
+    print("\n--- Fetching Device Metadata ---")
+    for d in devices:
+        pk = d["product_key"]
+        dk = d["device_key"]
+        print(f"  Fetching TSL (controls metadata) for {d.get('name', dk)}...", end="", flush=True)
+        try:
+            tsl = get_product_tsl(token_data["token"], REGIONS[region], pk)
+            if tsl:
+                d["tsl_cache"] = tsl
+                print(f" ✅ ({len(tsl)} properties)")
+            else:
+                print(" ⚠️  Using defaults")
+        except Exception as e:
+            print(f" ❌ ({e})")
+
     # --- Local / BLE Discovery (optional) ---
     if (HAS_LOCAL or HAS_BLE) and devices:
         print("\n--- Local Monitoring (optional) ---")
@@ -1467,7 +1587,26 @@ def setup_wizard():
         if HAS_LOCAL:
             do_lan = input("Scan for devices on WiFi LAN? [Y/n]: ").strip().lower() != "n"
             if do_lan:
-                _setup_lan_discovery(devices, token_data["token"], REGIONS[region])
+                devices = _setup_lan_discovery(devices, token_data["token"], REGIONS[region])
+
+            # Manual IP entry for devices that weren't found or skipped
+            print("\n--- Manual LAN IP Entry (optional) ---")
+            for d in devices:
+                if d.get("lan_ip"):
+                    continue  # Already configured
+                manual = input(f"  Enter LAN IP for {d.get('name', d['device_key'])} (or press Enter to skip): ").strip()
+                if manual:
+                    d["lan_ip"] = manual
+                    # Fetch auth key if not already cached
+                    if not d.get("auth_key"):
+                        try:
+                            print(f"  Fetching encryption key...", end="", flush=True)
+                            auth_key = get_auth_key(token_data["token"], REGIONS[region],
+                                                   d["product_key"], d["device_key"])
+                            d["auth_key"] = auth_key
+                            print(f" ✅")
+                        except Exception as e:
+                            print(f" ❌ ({e})")
 
         if HAS_BLE:
             do_ble = input("Scan for devices via Bluetooth? [Y/n]: ").strip().lower() != "n"
@@ -1546,6 +1685,8 @@ def setup_wizard():
 def main():
     parser = argparse.ArgumentParser(description="Pecron Battery Monitor & Controller")
     parser.add_argument("--setup", action="store_true", help="Run setup wizard")
+    parser.add_argument("--local", action="store_true",
+                        help="Run in offline/local-only mode (no cloud, uses cached config)")
     parser.add_argument("--status", action="store_true", help="One-shot status check")
     parser.add_argument("--ac", choices=["on", "off"], help="Turn AC output on/off")
     parser.add_argument("--dc", choices=["on", "off"], help="Turn DC output on/off")
@@ -1756,11 +1897,15 @@ def main():
         monitor.one_shot_command(
             ac=(args.ac == "on") if args.ac else None,
             dc=(args.dc == "on") if args.dc else None,
+            force_offline=args.local,
         )
     elif args.status:
-        monitor.status_once()
+        monitor.status_once(force_offline=args.local)
     else:
-        monitor.run(enable_ha=args.homeassistant or config.get("homeassistant", {}).get("enabled", False))
+        monitor.run(
+            enable_ha=args.homeassistant or config.get("homeassistant", {}).get("enabled", False),
+            force_offline=args.local,
+        )
 
 
 if __name__ == "__main__":

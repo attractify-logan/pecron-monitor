@@ -88,6 +88,117 @@ Your Pecron listens on TCP port 6607 when connected to WiFi. To find it:
 
 ---
 
+## Offline / Local-Only Mode
+
+You can run pecron-monitor **completely offline** — no internet connection required — using local TCP or Bluetooth. This is perfect for:
+
+- 🔐 **Security** — Firewall your Pecron from the internet entirely
+- 🚐 **Vanlife/Off-Grid** — Monitor without relying on cloud infrastructure
+- ⚡ **Speed** — Local TCP is faster than cloud MQTT
+- 🛡️ **Privacy** — No data leaves your local network
+
+### How It Works
+
+During setup (`--setup`), the wizard fetches a one-time encryption key (`auth_key`) from the cloud and saves it to `config.yaml`. After that, the key is cached forever and you never need internet again.
+
+The script automatically detects offline capability: if all devices in your config have `lan_ip` or `ble_address` + `auth_key` + `product_key` + `device_key`, it will gracefully fall back to offline mode if cloud login fails.
+
+### Quick Start
+
+```bash
+# 1. Run setup (requires internet once)
+python pecron_monitor.py --setup
+
+# The wizard will:
+#   - Scan your WiFi network for Pecron devices (port 6607)
+#   - Fetch the encryption key from cloud (cached forever)
+#   - Save lan_ip and auth_key to config.yaml
+
+# 2. Run in offline mode
+python pecron_monitor.py --local
+
+# Or just run normally — it will auto-fallback to offline if cloud is unavailable
+python pecron_monitor.py
+```
+
+### What Gets Cached
+
+When you run `--setup`, these fields are saved to `config.yaml` for each device:
+
+```yaml
+devices:
+  - product_key: "p11u2b"
+    device_key: "AABBCCDDEEFF"
+    name: "E1500LFP"
+    lan_ip: "192.168.1.100"         # Device's local IP (from LAN scan)
+    auth_key: "base64encodedkey=="   # Encryption key (from cloud, cached forever)
+    tsl_cache:                       # Controls metadata (from cloud, cached)
+      ac_switch_hm:
+        id: 40
+        type: "BOOL"
+        desc: "AC output"
+      # ... etc
+```
+
+### Running Fully Offline
+
+Once your config has these fields, you can:
+
+1. **Firewall your Pecron** — Block internet access entirely
+2. **Run without internet** — The monitor works offline:
+
+```bash
+python pecron_monitor.py --local
+```
+
+Or run normally and it will auto-detect offline mode if cloud login fails.
+
+### What Works Offline
+
+✅ **Full monitoring** — Battery%, voltage, temp, power in/out
+✅ **Controls** — Turn AC/DC on/off, change settings
+✅ **Automation rules** — Battery-level triggers, time-based actions
+✅ **Home Assistant MQTT bridge** — Works if HA is on local network
+
+### What Requires Internet
+
+❌ **Alerts** — Telegram, ntfy, webhooks all need internet (will warn but not crash)
+❌ **TSL updates** — If Pecron releases a new firmware with new controls, you'll need to re-run `--setup` to fetch updated metadata
+
+### Offline Mode Logging
+
+When running in offline or local mode, all log messages clearly show the data source:
+
+```
+🔋 73% | 51.8V | 24°C | ⚡ In:145W Out:0W | ⏱ 8h 42m [via LOCAL TCP]
+```
+
+Possible sources:
+- `BLE` — Bluetooth Low Energy (no network needed)
+- `LOCAL TCP` — WiFi TCP port 6607 (local network only)
+- `CLOUD MQTT` — Pecron's cloud servers
+- `REST API` — Cloud REST API fallback
+
+### Troubleshooting Offline Mode
+
+**"Cannot run in offline mode: missing required fields"**
+
+Run `--setup` first. You need internet once to fetch the `auth_key` and `tsl_cache`.
+
+**Local TCP not connecting**
+
+- Check that `lan_ip` is correct (device must be on same network)
+- Verify port 6607 is open: `nc -zv 192.168.1.100 6607`
+- Make sure your Pecron is powered on and WiFi is enabled
+
+**BLE not connecting**
+
+- Check that `ble_address` is correct (run `--setup` to scan)
+- Make sure Bluetooth is enabled on your computer
+- Pecron must be powered on and within ~30ft range
+
+---
+
 ## Requirements
 
 You need **three things** (plus one optional extra for Bluetooth):
