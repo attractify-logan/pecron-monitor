@@ -1,5 +1,7 @@
 # Pecron Battery Monitor
 
+**v0.5.0** · [Changelog](CHANGELOG.md)
+
 Real-time monitoring and control for Pecron portable power stations — no phone required.
 
 **Three ways to connect — Bluetooth, WiFi, or Cloud — with automatic fallback.** Perfect for vanlife, off-grid, and anywhere you want monitoring without depending on Pecron's servers or even a WiFi network.

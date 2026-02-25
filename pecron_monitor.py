@@ -18,6 +18,8 @@ Usage:
     python pecron_monitor.py --homeassistant # Start with Home Assistant MQTT bridge
 """
 
+__version__ = "0.5.0"
+
 import argparse
 import base64
 import hashlib
@@ -1684,6 +1686,7 @@ def setup_wizard():
 
 def main():
     parser = argparse.ArgumentParser(description="Pecron Battery Monitor & Controller")
+    parser.add_argument("--version", action="version", version=f"pecron-monitor {__version__}")
     parser.add_argument("--setup", action="store_true", help="Run setup wizard")
     parser.add_argument("--local", action="store_true",
                         help="Run in offline/local-only mode (no cloud, uses cached config)")
