@@ -18,7 +18,7 @@ Usage:
     python pecron_monitor.py --homeassistant # Start with Home Assistant MQTT bridge
 """
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 
 import argparse
 import base64
@@ -729,6 +729,7 @@ class PecronMonitor:
                 self.devices = resolve_devices(self.config, self.token_data["token"], self.region)
                 if not self.devices:
                     raise RuntimeError("No valid devices found.")
+                self._setup_local_transports()
             except Exception as e:
                 log.warning("Cloud login failed (%s), falling back to offline mode", e)
                 self.offline_mode = True
@@ -742,6 +743,7 @@ class PecronMonitor:
             self.devices = resolve_devices(self.config, self.token_data["token"], self.region)
             if not self.devices:
                 raise RuntimeError("No valid devices found.")
+            self._setup_local_transports()
 
     def _check_offline_capable(self) -> bool:
         """Check if all devices have the required fields for offline operation."""
@@ -781,11 +783,20 @@ class PecronMonitor:
 
         log.info("Loaded %d device(s) from config", len(self.devices))
 
-        # Set up local transports for devices with LAN IPs
+        # Set up local transports (TCP + BLE)
+        if self.no_ble:
+            log.info("BLE disabled (--no-ble flag)")
+        self._setup_local_transports()
+
+    def _setup_local_transports(self):
+        """Set up local TCP and BLE transports for devices with lan_ip/ble in config."""
+        configured = {d.get("device_key"): d for d in self.config.get("devices", [])}
+
         if HAS_LOCAL:
-            configured = {d.get("device_key"): d for d in self.config.get("devices", [])}
             for device in self.devices:
                 dk = device["device_key"]
+                if dk in self.local_transports:
+                    continue  # Already set up
                 cfg = configured.get(dk, {})
                 lan_ip = cfg.get("lan_ip")
                 if not lan_ip:
@@ -793,27 +804,28 @@ class PecronMonitor:
                 try:
                     auth_key = cfg.get("auth_key")
                     if not auth_key:
-                        log.info("Fetching auth key for %s...", dk)
-                        auth_key = get_auth_key(
-                            self.token_data["token"], self.region,
-                            device["product_key"], dk
-                        )
-                        log.info("Got auth key for %s (cache it in config.yaml as auth_key)", dk)
+                        if self.token_data:
+                            log.info("Fetching auth key for %s...", dk)
+                            auth_key = get_auth_key(
+                                self.token_data["token"], self.region,
+                                device["product_key"], dk
+                            )
+                            log.info("Got auth key for %s (cache it in config.yaml as auth_key)", dk)
+                        else:
+                            log.warning("No auth key for %s and no cloud token to fetch one", dk)
+                            continue
                     self.local_transports[dk] = LocalTransport(lan_ip, auth_key)
                     log.info("Local transport configured for %s @ %s", dk, lan_ip)
                 except Exception as e:
                     log.warning("Failed to set up local transport for %s: %s", dk, e)
 
-        # Set up BLE transports
-        if self.no_ble:
-            log.info("BLE disabled (--no-ble flag)")
-        if HAS_BLE and not self.no_ble:
+        if not self.no_ble and HAS_BLE:
             for device in self.devices:
                 dk = device["device_key"]
+                if dk in self.ble_transports:
+                    continue
                 cfg = configured.get(dk, {})
-                # Per-device BLE disable: set ble: false in config.yaml
                 if cfg.get("ble") is False:
-                    log.info("BLE disabled for %s (ble: false in config)", dk)
                     continue
                 ble_addr = cfg.get("ble_address")
                 ble_enabled = cfg.get("ble", False)
@@ -821,16 +833,14 @@ class PecronMonitor:
                     continue
                 try:
                     auth_key = cfg.get("auth_key")
-                    if not auth_key and dk not in self.local_transports:
+                    if not auth_key and dk in self.local_transports:
+                        auth_key = self.local_transports[dk].auth_key_b64
+                    if not auth_key and self.token_data:
                         log.info("Fetching auth key for %s (BLE)...", dk)
                         auth_key = get_auth_key(
                             self.token_data["token"], self.region,
                             device["product_key"], dk
                         )
-                    elif not auth_key:
-                        # Reuse from TCP transport config
-                        auth_key = cfg.get("auth_key", self.local_transports[dk].auth_key_b64
-                                           if dk in self.local_transports else None)
                     if auth_key:
                         self.ble_transports[dk] = BLETransport(
                             auth_key, device_address=ble_addr, device_key=dk
@@ -1202,6 +1212,8 @@ class PecronMonitor:
                         self._process_data(dk, kv, source="REST API")
 
     def _token_needs_refresh(self) -> bool:
+        if self.offline_mode:
+            return False
         if not self.token_data:
             return True
         return time.time() > (self.token_data["expires_at"] - 300)
@@ -1255,11 +1267,12 @@ class PecronMonitor:
                 if self._token_needs_refresh():
                     log.info("Refreshing token...")
                     try:
-                        self.mqtt_client.loop_stop()
-                        self.mqtt_client.disconnect()
+                        if self.mqtt_client:
+                            self.mqtt_client.loop_stop()
+                            self.mqtt_client.disconnect()
                     except Exception:
                         pass
-                    self.authenticate()
+                    self.authenticate(force_offline=force_offline)
                     self.connect_mqtt()
                     time.sleep(3)
                 self._request_status()
