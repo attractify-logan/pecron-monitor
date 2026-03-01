@@ -20,6 +20,67 @@ Usage:
 
 __version__ = "0.5.4"
 
+def _truthy(v):
+    """Normalize Pecron boolean-like values to True/False."""
+    if v is None:
+        return False
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v != 0
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "on", "yes", "enabled")
+    return False
+
+def _fmt_dhm(minutes):
+    try:
+        m = int(minutes)
+    except (TypeError, ValueError):
+        return None
+    if m < 0:
+        return None
+    d = m // (60 * 24)
+    h = (m % (60 * 24)) // 60
+    mm = m % 60
+    if d > 0:
+        return f"{d}d{h:02d}h{mm:02d}m"
+    return f"{h}h{mm:02d}m"
+
+def _get_first_present(kv: dict, paths):
+    """Return the first non-None value present in kv following any of the provided tuple paths."""
+    for p in paths:
+        cur = kv
+        ok = True
+        for key in p:
+            if not isinstance(cur, dict) or key not in cur:
+                ok = False
+                break
+            cur = cur[key]
+        if ok and cur is not None:
+            return cur
+    return None
+
+
+
+def _truthy(v):
+    """Robust truthiness for device values (handles 0/1, '0'/'1', 'on'/'off', etc.)."""
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v != 0
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if s in ("1", "true", "t", "yes", "y", "on", "open", "enabled"):
+            return True
+        if s in ("0", "false", "f", "no", "n", "off", "close", "closed", "disabled", ""):
+            return False
+        # fallback: non-empty string is True
+        return True
+    return bool(v)
+
+
 import argparse
 import base64
 import hashlib
@@ -113,8 +174,8 @@ DEFAULT_CONTROLS = {
 # while others (E300LFP) report them at the top level.
 SENSOR_FIELDS = {
     "battery_percent": [
-        ("host_packet_data_jdb", "host_packet_electric_percentage"),
         ("battery_percentage",),
+        ("host_packet_data_jdb", "host_packet_electric_percentage"),
     ],
     "voltage": [
         ("host_packet_data_jdb", "host_packet_voltage"),
@@ -133,9 +194,9 @@ SENSOR_FIELDS = {
     "dc_output_power": [("dc_data_output_hm", "dc_output_power")],
     "ac_input_power": [("ac_data_input_hm", "ac_power")],
     "dc_input_power": [("dc_data_input_hm", "dc_input_power")],
-    "ac_switch": [("ac_switch_hm",)],
-    "dc_switch": [("dc_switch_hm",)],
-    "ups_mode": [("ups_status_hm",)],
+    "ac_switch": [("ac_switch_hm",), ("host_packet_data_jdb","host_packet_ac_switch"), ("host_packet_data_jdb","ac_switch")],
+    "dc_switch": [("dc_switch_hm",), ("host_packet_data_jdb","host_packet_dc_switch"), ("host_packet_data_jdb","dc_switch")],
+    "ups_mode": [("ups_status_hm",), ("host_packet_data_jdb","host_packet_ups_status"), ("host_packet_data_jdb","ups_status")],
 }
 
 
@@ -486,6 +547,12 @@ class HomeAssistantBridge:
         self.discovery_prefix = ha_config.get("discovery_prefix", "homeassistant")
         self._connected = False
 
+        # Cache last-known-good values per device so partial payloads don't zero-out entities
+        self._state_cache = {}  # device_key -> dict of last published fields
+        # Cache last-known values per device so partial payloads (host-only vs SOC-only)
+        # don't clobber sensors to 0/unknown in Home Assistant.
+        self._last_state = {}  # device_key -> dict
+
     def connect(self):
         host = self.ha_config.get("mqtt_host", "localhost")
         port = self.ha_config.get("mqtt_port", 1883)
@@ -544,13 +611,25 @@ class HomeAssistantBridge:
 
             # Battery sensor
             self._pub_config("sensor", dk, "battery", {
-                "name": "Battery",
+                "name": "Battery (SOC)",
                 "device_class": "battery",
                 "unit_of_measurement": "%",
                 "state_topic": f"pecron/{dk}/state",
-                "value_template": "{{ value_json.battery_percent }}",
+                "value_template": "{{ value_json.soc_percent }}",
                 "device": dev_info,
                 "unique_id": f"pecron_{dk}_battery",
+            })
+
+
+            # Host pack battery sensor
+            self._pub_config("sensor", dk, "host_battery", {
+                "name": "Host Battery",
+                "device_class": "battery",
+                "unit_of_measurement": "%",
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": "{{ value_json.host_percent }}",
+                "device": dev_info,
+                "unique_id": f"pecron_{dk}_host_battery",
             })
 
             # Voltage sensor
@@ -588,23 +667,23 @@ class HomeAssistantBridge:
                 })
 
             # Remaining time sensor
-            self._pub_config("sensor", dk, "remaining", {
+            # Remaining time sensor (H:M)
+            self._pub_config("sensor", dk, "remaining_time", {
                 "name": "Remaining Time",
                 "icon": "mdi:timer-outline",
-                "unit_of_measurement": "min",
                 "state_topic": f"pecron/{dk}/state",
-                "value_template": "{{ value_json.remain_minutes }}",
+                "value_template": "{{ value_json.remain_hm }}",
                 "device": dev_info,
-                "unique_id": f"pecron_{dk}_remaining",
+                "unique_id": f"pecron_{dk}_remaining_time",
             })
 
             # AC switch
             self._pub_config("switch", dk, "ac", {
                 "name": "AC Output",
                 "icon": "mdi:power-plug",
-                "state_topic": f"pecron/{dk}/state",
                 "command_topic": f"pecron/{dk}/ac/set",
-                "value_template": "{{ value_json.ac_switch }}",
+                "optimistic": True,
+                "assumed_state": True,
                 "payload_on": "ON", "payload_off": "OFF",
                 "state_on": "ON", "state_off": "OFF",
                 "device": dev_info,
@@ -615,9 +694,9 @@ class HomeAssistantBridge:
             self._pub_config("switch", dk, "dc", {
                 "name": "DC Output",
                 "icon": "mdi:usb-port",
-                "state_topic": f"pecron/{dk}/state",
                 "command_topic": f"pecron/{dk}/dc/set",
-                "value_template": "{{ value_json.dc_switch }}",
+                "optimistic": True,
+                "assumed_state": True,
                 "payload_on": "ON", "payload_off": "OFF",
                 "state_on": "ON", "state_off": "OFF",
                 "device": dev_info,
@@ -628,9 +707,9 @@ class HomeAssistantBridge:
             self._pub_config("switch", dk, "ups", {
                 "name": "UPS Mode",
                 "icon": "mdi:shield-battery",
-                "state_topic": f"pecron/{dk}/state",
                 "command_topic": f"pecron/{dk}/ups/set",
-                "value_template": "{{ value_json.ups_mode }}",
+                "optimistic": True,
+                "assumed_state": True,
                 "payload_on": "ON", "payload_off": "OFF",
                 "state_on": "ON", "state_off": "OFF",
                 "device": dev_info,
@@ -644,25 +723,128 @@ class HomeAssistantBridge:
         self.client.publish(topic, json.dumps(config), qos=1, retain=True)
 
     def publish_state(self, device_key: str, kv: dict):
-        """Publish current state to HA."""
+        """Publish current state to HA.
+
+        The device sends multiple payload "shapes" (e.g., host packet vs overall packet).
+        Some shapes omit fields and/or carry placeholder zeros; without caching, HA entities
+        will flap between valid values and 0/unknown. We therefore merge updates into a
+        per-device cache and only overwrite fields when the source field is present.
+        """
         if not self._connected:
             return
 
-        state = {
-            "battery_percent": int(_get_kv(kv, SENSOR_FIELDS["battery_percent"], 0)),
-            "voltage": round(float(_get_kv(kv, SENSOR_FIELDS["voltage"], 0)), 1),
-            "temperature": int(_get_kv(kv, SENSOR_FIELDS["temperature"], 0)),
-            "total_input_power": int(_get_kv(kv, SENSOR_FIELDS["total_input_power"], 0)),
-            "total_output_power": int(_get_kv(kv, SENSOR_FIELDS["total_output_power"], 0)),
-            "remain_minutes": int(_get_kv(kv, SENSOR_FIELDS["remain_time"], 0)),
-            "ac_switch": "ON" if _get_kv(kv, SENSOR_FIELDS["ac_switch"]) else "OFF",
-            "dc_switch": "ON" if _get_kv(kv, SENSOR_FIELDS["dc_switch"]) else "OFF",
-            "ups_mode": "ON" if _get_kv(kv, SENSOR_FIELDS["ups_mode"]) else "OFF",
-            "ac_output_power": int(_get_kv(kv, SENSOR_FIELDS["ac_output_power"], 0)),
-            "ac_output_voltage": int(_get_kv(kv, SENSOR_FIELDS["ac_output_voltage"], 0)),
-        }
+        cache = self._state_cache.setdefault(device_key, {})
 
-        self.client.publish(f"pecron/{device_key}/state", json.dumps(state), qos=1, retain=True)
+        def _get_first_present(paths):
+            """
+            Return (present, value) for the first path that exists in this payload shape.
+            'present' means the field path resolved to a non-None value (0 is valid).
+            """
+            for p in paths:
+                val = _get_kv_single(kv, p)
+                if val is not None:
+                    return True, val
+            return False, None
+
+        # Identify payload shape (host packet vs overall packet)
+        host_dict = kv.get("host_packet_data_jdb")
+        packet_has_host = isinstance(host_dict, dict) and bool(host_dict)
+
+        # ---- Core sensors ----
+        # For these, only overwrite when their source field exists in the payload shape.
+        # Accept 0 as a real reading *only if the source path is present*.
+        present, v = _get_first_present(SENSOR_FIELDS["voltage"])
+        if present:
+            try:
+                cache["voltage"] = round(float(v), 1)
+            except (TypeError, ValueError):
+                pass
+
+        present, v = _get_first_present(SENSOR_FIELDS["temperature"])
+        if present:
+            try:
+                cache["temperature"] = int(float(v))
+            except (TypeError, ValueError):
+                pass
+
+        present, v = _get_first_present(SENSOR_FIELDS["total_input_power"])
+        if present and (not packet_has_host or float(v) != 0.0):
+            try:
+                cache["total_input_power"] = int(float(v))
+            except (TypeError, ValueError):
+                pass
+
+        present, v = _get_first_present(SENSOR_FIELDS["total_output_power"])
+        if present and (not packet_has_host or float(v) != 0.0):
+            try:
+                cache["total_output_power"] = int(float(v))
+            except (TypeError, ValueError):
+                pass
+
+        present, v = _get_first_present(SENSOR_FIELDS["remain_time"])
+        if present and (not packet_has_host or float(v) != 0.0):
+            try:
+                cache["remain_minutes"] = int(float(v))
+            except (TypeError, ValueError):
+                pass
+
+        # Human-friendly remaining time for UI
+        cache["remain_hm"] = _fmt_dhm(cache.get("remain_minutes"))
+
+        # ---- Switch states ----
+        # Some payloads don't include these; cache last known.
+        def _update_switch(field_key, out_key):
+            present, v = _get_first_present(SENSOR_FIELDS[field_key])
+            if present:
+                cache[out_key] = "ON" if _truthy(v) else "OFF"
+
+        _update_switch("ac_switch", "ac_switch")
+        _update_switch("dc_switch", "dc_switch")
+        _update_switch("ups_mode", "ups_mode")
+
+        # AC output sensors
+        present, v = _get_first_present(SENSOR_FIELDS["ac_output_power"])
+        if present:
+            try:
+                cache["ac_output_power"] = int(float(v))
+            except (TypeError, ValueError):
+                pass
+
+        present, v = _get_first_present(SENSOR_FIELDS["ac_output_voltage"])
+        if present:
+            try:
+                cache["ac_output_voltage"] = int(float(v))
+            except (TypeError, ValueError):
+                pass
+
+        # ---- SOC vs Host % ----
+        # Your device alternates two payload shapes:
+        #   * host packet (has host_packet_data_jdb.*) -> host %
+        #   * overall packet (no host_packet_data_jdb) -> overall SOC %
+        #
+        # IMPORTANT: when host_packet_data_jdb is present, battery_percentage mirrors host %,
+        # so we *must not* treat it as SOC in that shape.
+        if packet_has_host:
+            present, v = _get_first_present([("host_packet_data_jdb", "host_packet_electric_percentage")])
+            if present:
+                try:
+                    cache["host_percent"] = int(float(v))
+                except (TypeError, ValueError):
+                    pass
+        else:
+            present, v = _get_first_present([("battery_percentage",)])
+            if present:
+                try:
+                    cache["soc_percent"] = int(float(v))
+                except (TypeError, ValueError):
+                    pass
+
+        # Ensure keys exist for HA templates (but don't force unknown -> 0)
+        cache.setdefault("host_percent", None)
+        cache.setdefault("soc_percent", None)
+        cache.setdefault("remain_hm", _fmt_dhm(cache.get("remain_minutes")))
+
+        self.client.publish(f"pecron/{device_key}/state", json.dumps(cache), qos=1, retain=True)
 
     def disconnect(self):
         if self.client:
@@ -1403,7 +1585,6 @@ class PecronMonitor:
 
         for dk, kv in self.latest_data.items():
             remain = int(_get_kv(kv, SENSOR_FIELDS["remain_time"], 0))
-            packs = kv.get("charging_pack_data_jdb", [])
             source = self.data_sources.get(dk, "UNKNOWN")
 
             # Compute total power with AC+DC fallback
