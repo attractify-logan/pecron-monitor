@@ -80,8 +80,8 @@ class TestTokenRefreshOffline(unittest.TestCase):
 class TestLocalTransportSetup(unittest.TestCase):
     """Bug 1: Local transports should be set up even in cloud mode."""
 
-    @patch('pecron_monitor.HAS_LOCAL', True)
-    @patch('pecron_monitor.LocalTransport')
+    @patch('monitor.HAS_LOCAL', True)
+    @patch('monitor.LocalTransport')
     def test_setup_local_transports_with_lan_ip_and_auth(self, MockLT):
         """When lan_ip and auth_key are in config, transport should be created."""
         config = make_config(with_lan=True, with_auth=True)
@@ -97,8 +97,8 @@ class TestLocalTransportSetup(unittest.TestCase):
         MockLT.assert_called_once_with("192.168.1.100", FAKE_AUTH_KEY)
         self.assertIn("F4AB5CB4B5D4", monitor.local_transports)
 
-    @patch('pecron_monitor.HAS_LOCAL', True)
-    @patch('pecron_monitor.LocalTransport')
+    @patch('monitor.HAS_LOCAL', True)
+    @patch('monitor.LocalTransport')
     def test_no_duplicate_setup(self, MockLT):
         """Calling _setup_local_transports twice shouldn't create duplicates."""
         config = make_config(with_lan=True, with_auth=True)
@@ -114,8 +114,8 @@ class TestLocalTransportSetup(unittest.TestCase):
 
         MockLT.assert_called_once()  # Should only create once
 
-    @patch('pecron_monitor.HAS_LOCAL', True)
-    @patch('pecron_monitor.LocalTransport')
+    @patch('monitor.HAS_LOCAL', True)
+    @patch('monitor.LocalTransport')
     def test_no_lan_ip_no_transport(self, MockLT):
         """Without lan_ip in config, no local transport should be created."""
         config = make_config(with_lan=False)
@@ -131,9 +131,9 @@ class TestLocalTransportSetup(unittest.TestCase):
         MockLT.assert_not_called()
         self.assertEqual(len(monitor.local_transports), 0)
 
-    @patch('pecron_monitor.HAS_LOCAL', True)
-    @patch('pecron_monitor.get_auth_key', return_value=FAKE_AUTH_KEY)
-    @patch('pecron_monitor.LocalTransport')
+    @patch('monitor.HAS_LOCAL', True)
+    @patch('monitor.get_auth_key', return_value=FAKE_AUTH_KEY)
+    @patch('monitor.LocalTransport')
     def test_fetches_auth_key_from_cloud_if_missing(self, MockLT, mock_get_auth):
         """If auth_key is missing but token is available, fetch it from cloud."""
         config = make_config(with_lan=True, with_auth=False)
@@ -150,8 +150,8 @@ class TestLocalTransportSetup(unittest.TestCase):
         mock_get_auth.assert_called_once()
         MockLT.assert_called_once()
 
-    @patch('pecron_monitor.HAS_LOCAL', True)
-    @patch('pecron_monitor.LocalTransport')
+    @patch('monitor.HAS_LOCAL', True)
+    @patch('monitor.LocalTransport')
     def test_no_auth_key_no_token_skips(self, MockLT):
         """If auth_key is missing AND no cloud token, skip gracefully."""
         config = make_config(with_lan=True, with_auth=False)
@@ -190,10 +190,10 @@ class TestOfflineCapable(unittest.TestCase):
 class TestAuthenticateCloudWithLocal(unittest.TestCase):
     """Bug 1 integration: authenticate() in cloud mode should set up local transports."""
 
-    @patch('pecron_monitor.HAS_LOCAL', True)
-    @patch('pecron_monitor.LocalTransport')
-    @patch('pecron_monitor.resolve_devices')
-    @patch('pecron_monitor.login')
+    @patch('monitor.HAS_LOCAL', True)
+    @patch('monitor.LocalTransport')
+    @patch('monitor.resolve_devices')
+    @patch('monitor.login')
     def test_cloud_auth_sets_up_local(self, mock_login, mock_resolve, MockLT):
         """Cloud auth path should call _setup_local_transports after resolve_devices."""
         mock_login.return_value = {"token": "t", "uid": "u", "expires_at": 9999999999}
