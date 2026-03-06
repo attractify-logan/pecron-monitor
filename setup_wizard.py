@@ -4,6 +4,10 @@ Interactive setup wizard for pecron-monitor.
 Guides users through account setup, device discovery, and configuration.
 """
 
+import getpass
+import os
+import shutil
+import subprocess
 import yaml
 from pathlib import Path
 
@@ -275,5 +279,105 @@ def setup_wizard():
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     print(f"\n✅ Config saved to {CONFIG_PATH}")
-    print("Run 'python pecron_monitor.py' to start monitoring!")
+
+    # --- Systemd service installation (optional) ---
+    _setup_systemd_service()
+
+    print("\nRun 'python pecron_monitor.py' to start monitoring!")
     print("Run 'python pecron_monitor.py --ac on' to test AC control!")
+
+
+def _setup_systemd_service():
+    """Optionally generate and install a systemd service file."""
+    # Only offer on Linux with systemd
+    if not shutil.which("systemctl"):
+        return
+
+    print("\n--- Systemd Service (optional) ---")
+    install_service = input("Install as a systemd service (auto-start on boot)? [y/N]: ").strip().lower() == "y"
+    if not install_service:
+        return
+
+    # Detect sensible defaults
+    repo_dir = Path(__file__).parent.resolve()
+    current_user = getpass.getuser()
+    run_sh = repo_dir / "run.sh"
+
+    print(f"\n  Detected install path: {repo_dir}")
+    print(f"  Detected user: {current_user}")
+
+    custom_user = input(f"  Run as user [{current_user}]: ").strip() or current_user
+    custom_dir = input(f"  Install path [{repo_dir}]: ").strip() or str(repo_dir)
+    custom_dir = str(Path(custom_dir).resolve())
+
+    service_content = f"""[Unit]
+Description=Pecron Battery Monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={custom_user}
+WorkingDirectory={custom_dir}
+ExecStart={custom_dir}/run.sh
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+    # Make sure run.sh exists and is executable
+    if not run_sh.exists():
+        print(f"  ⚠️  run.sh not found at {run_sh} — skipping service install.")
+        print(f"  Make sure run.sh is in the repo root directory.")
+        return
+    if not os.access(run_sh, os.X_OK):
+        os.chmod(run_sh, 0o755)
+
+    # Write to a temp location first, then copy with sudo
+    generated_path = repo_dir / "pecron-monitor.service.generated"
+    with open(generated_path, "w") as f:
+        f.write(service_content)
+
+    print(f"\n  Generated service file:")
+    print(f"    User: {custom_user}")
+    print(f"    WorkingDirectory: {custom_dir}")
+    print(f"    ExecStart: {custom_dir}/run.sh")
+
+    do_install = input("\n  Install to /etc/systemd/system/? (requires sudo) [Y/n]: ").strip().lower() != "n"
+    if not do_install:
+        print(f"  Service file saved to: {generated_path}")
+        print(f"  To install manually:")
+        print(f"    sudo cp {generated_path} /etc/systemd/system/pecron-monitor.service")
+        print(f"    sudo systemctl daemon-reload")
+        print(f"    sudo systemctl enable --now pecron-monitor")
+        return
+
+    try:
+        subprocess.run(
+            ["sudo", "cp", str(generated_path), "/etc/systemd/system/pecron-monitor.service"],
+            check=True
+        )
+        subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)
+
+        enable_now = input("  Enable and start now? [Y/n]: ").strip().lower() != "n"
+        if enable_now:
+            subprocess.run(["sudo", "systemctl", "enable", "--now", "pecron-monitor"], check=True)
+            print("  ✅ Service installed and running!")
+            print("  Check status: sudo systemctl status pecron-monitor")
+            print("  View logs:    sudo journalctl -u pecron-monitor -f")
+        else:
+            subprocess.run(["sudo", "systemctl", "enable", "pecron-monitor"], check=True)
+            print("  ✅ Service installed and enabled (will start on next boot).")
+            print("  To start now: sudo systemctl start pecron-monitor")
+    except subprocess.CalledProcessError as e:
+        print(f"  ❌ Installation failed: {e}")
+        print(f"  Service file saved to: {generated_path}")
+        print(f"  Install manually with: sudo cp {generated_path} /etc/systemd/system/pecron-monitor.service")
+    finally:
+        # Clean up generated file if it was installed
+        if Path("/etc/systemd/system/pecron-monitor.service").exists():
+            generated_path.unlink(missing_ok=True)
