@@ -163,11 +163,19 @@ Run with `--homeassistant` or just start normally (auto-detects if enabled). You
 ## Running as a Service
 
 ```bash
-# Edit pecron-monitor.service with your paths, then:
+# 1. Edit pecron-monitor.service — update User, WorkingDirectory, and ExecStart
+#    to match your system (defaults assume user=pi at /home/pi/pecron-monitor)
+nano pecron-monitor.service
+
+# 2. Install and start
 sudo cp pecron-monitor.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now pecron-monitor
 ```
+
+> **Tip:** The service file uses `run.sh` as a wrapper so that `git checkout` / `git pull`
+> operations won't break the running service. If you update the service file itself,
+> re-copy it and run `sudo systemctl daemon-reload`.
 
 ## Bluetooth (BLE) Setup
 

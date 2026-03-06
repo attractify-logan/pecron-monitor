@@ -5,9 +5,13 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# --- EDIT THESE TO MATCH YOUR SYSTEM ---
+# User: the account that owns the pecron-monitor directory
+# WorkingDirectory / ExecStart: path where you cloned the repo
 User=pi
 WorkingDirectory=/home/pi/pecron-monitor
-ExecStart=/usr/bin/python3 /home/pi/pecron-monitor/pecron_monitor.py
+ExecStart=/home/pi/pecron-monitor/run.sh
+# ----------------------------------------
 Restart=always
 RestartSec=30
 StandardOutput=journal
