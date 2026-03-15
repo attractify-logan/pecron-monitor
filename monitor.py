@@ -672,7 +672,7 @@ class PecronMonitor:
 
         # Fall back to cloud MQTT
         if self.mqtt_client is None:
-            log.error("Cannot send control %s: no local transport connected and MQTT is unavailable (offline mode?)", control_code)
+            log.debug("Cannot send control %s: no local transport connected and MQTT is unavailable (offline mode?)", control_code)
             return False
         self.mqtt_client.publish(f"q/1/d/{cid}/bus", pkt, qos=1)
         log.info("Sent %s=%s (type=%s) to %s via CLOUD", control_code, value, ctrl_type, device_key)
@@ -934,9 +934,10 @@ class PecronMonitor:
         # Enable high-frequency MQTT reporting on all devices for fast initial data fill.
         # The E3800 sends telemetry in 3 alternating MQTT packet shapes — with normal
         # reporting (~60s interval), it takes ~3 min to see all shapes. High-freq gets
-        # a complete picture in ~30 seconds. We disable it after 60s to be polite to
-        # Pecron's cloud infrastructure.
-        self._enable_high_freq_reporting()
+        # a complete picture in ~30 seconds.
+        # Only useful when cloud MQTT is connected — skip in offline/local-only mode.
+        if self.mqtt_client:
+            self._enable_high_freq_reporting()
 
         time.sleep(3)
         self._request_status()
@@ -948,8 +949,8 @@ class PecronMonitor:
                 time.sleep(poll_interval)
 
                 # Re-send high-freq reporting request every 20s (matches app behavior)
-                # The app continuously requests this while viewing a device
-                if time.time() - last_high_freq_time >= 20:
+                # Only when cloud MQTT is active — pointless in offline/local-only mode
+                if self.mqtt_client and time.time() - last_high_freq_time >= 20:
                     self._enable_high_freq_reporting()
                     last_high_freq_time = time.time()
 

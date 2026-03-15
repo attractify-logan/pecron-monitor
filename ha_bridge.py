@@ -18,7 +18,7 @@ from constants import (SENSOR_FIELDS, DEVICE_STATUS_LABELS, FAULT_ALARM_LABELS,
                        WB_CHARGE_VOLTAGE_LABELS, WB_DISCHARGE_VOLTAGE_LABELS,
                        WB_CHARGE_CURRENT_LABELS, WB_DISCHARGE_CURRENT_LABELS,
                        WB_HEATING_MODE_LABELS, WB_BATTERY_CODING_LABELS,
-                       WB_STANDBY_TIME_LABELS)
+                       WB_STANDBY_TIME_LABELS, PACK_STATUS_LABELS)
 
 log = logging.getLogger("pecron")
 
@@ -349,6 +349,27 @@ class HomeAssistantBridge:
                 "unique_id": f"pecron_{dk}_ac_output_voltage",
             })
 
+            # AC output frequency sensor
+            self._pub_config("sensor", dk, "ac_output_hz", {
+                "name": "AC Output Frequency",
+                "icon": "mdi:sine-wave",
+                "unit_of_measurement": "Hz",
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": "{{ value_json.ac_output_hz }}",
+                "device": dev_info,
+                "unique_id": f"pecron_{dk}_ac_output_hz",
+            })
+
+            # AC power factor sensor
+            self._pub_config("sensor", dk, "ac_output_pf", {
+                "name": "AC Power Factor",
+                "icon": "mdi:angle-acute",
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": "{{ value_json.ac_output_pf }}",
+                "device": dev_info,
+                "unique_id": f"pecron_{dk}_ac_output_pf",
+            })
+
             # Current sensor (amps — critical for RV/motorhome monitoring)
             self._pub_config("sensor", dk, "current", {
                 "name": "Current",
@@ -369,6 +390,99 @@ class HomeAssistantBridge:
                 "value_template": "{{ value_json.dc_output_power }}",
                 "device": dev_info,
                 "unique_id": f"pecron_{dk}_dc_output",
+            })
+
+            # DC5521 (barrel) input sensors
+            self._pub_config("sensor", dk, "dc5521_input_voltage", {
+                "name": "DC5521 Input Voltage",
+                "device_class": "voltage",
+                "unit_of_measurement": "V",
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": "{{ value_json.dc5521_input_voltage }}",
+                "device": dev_info,
+                "unique_id": f"pecron_{dk}_dc5521_input_voltage",
+            })
+
+            self._pub_config("sensor", dk, "dc5521_input_current", {
+                "name": "DC5521 Input Current",
+                "device_class": "current",
+                "unit_of_measurement": "A",
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": "{{ value_json.dc5521_input_current }}",
+                "device": dev_info,
+                "unique_id": f"pecron_{dk}_dc5521_input_current",
+            })
+
+            self._pub_config("sensor", dk, "dc5521_input_power", {
+                "name": "DC5521 Input Power",
+                "device_class": "power",
+                "unit_of_measurement": "W",
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": "{{ value_json.dc5521_input_power }}",
+                "device": dev_info,
+                "unique_id": f"pecron_{dk}_dc5521_input_power",
+            })
+
+            # Solar Port 1 (GX16-MF1) input sensors
+            self._pub_config("sensor", dk, "gx16mf1_input_voltage", {
+                "name": "Solar Port 1 Voltage",
+                "device_class": "voltage",
+                "unit_of_measurement": "V",
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": "{{ value_json.gx16mf1_input_voltage }}",
+                "device": dev_info,
+                "unique_id": f"pecron_{dk}_gx16mf1_input_voltage",
+            })
+
+            self._pub_config("sensor", dk, "gx16mf1_input_current", {
+                "name": "Solar Port 1 Current",
+                "device_class": "current",
+                "unit_of_measurement": "A",
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": "{{ value_json.gx16mf1_input_current }}",
+                "device": dev_info,
+                "unique_id": f"pecron_{dk}_gx16mf1_input_current",
+            })
+
+            self._pub_config("sensor", dk, "gx16mf1_input_power", {
+                "name": "Solar Port 1 Power",
+                "device_class": "power",
+                "unit_of_measurement": "W",
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": "{{ value_json.gx16mf1_input_power }}",
+                "device": dev_info,
+                "unique_id": f"pecron_{dk}_gx16mf1_input_power",
+            })
+
+            # Solar Port 2 (GX16-MF2) input sensors
+            self._pub_config("sensor", dk, "gx16mf2_input_voltage", {
+                "name": "Solar Port 2 Voltage",
+                "device_class": "voltage",
+                "unit_of_measurement": "V",
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": "{{ value_json.gx16mf2_input_voltage }}",
+                "device": dev_info,
+                "unique_id": f"pecron_{dk}_gx16mf2_input_voltage",
+            })
+
+            self._pub_config("sensor", dk, "gx16mf2_input_current", {
+                "name": "Solar Port 2 Current",
+                "device_class": "current",
+                "unit_of_measurement": "A",
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": "{{ value_json.gx16mf2_input_current }}",
+                "device": dev_info,
+                "unique_id": f"pecron_{dk}_gx16mf2_input_current",
+            })
+
+            self._pub_config("sensor", dk, "gx16mf2_input_power", {
+                "name": "Solar Port 2 Power",
+                "device_class": "power",
+                "unit_of_measurement": "W",
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": "{{ value_json.gx16mf2_input_power }}",
+                "device": dev_info,
+                "unique_id": f"pecron_{dk}_gx16mf2_input_power",
             })
 
             # Remaining charging time
@@ -540,6 +654,62 @@ class HomeAssistantBridge:
                 "device": dev_info,
                 "unique_id": f"pecron_{dk}_fault_alarm",
             })
+
+            # Per-pack sensors (charging_pack_data_jdb) — packs 0-3
+            for pack_num in range(4):
+                # Pack battery percentage
+                self._pub_config("sensor", dk, f"pack_{pack_num}_battery", {
+                    "name": f"Pack {pack_num} Battery",
+                    "device_class": "battery",
+                    "unit_of_measurement": "%",
+                    "state_topic": f"pecron/{dk}/state",
+                    "value_template": f"{{{{ value_json.pack_{pack_num}_battery }}}}",
+                    "device": dev_info,
+                    "unique_id": f"pecron_{dk}_pack_{pack_num}_battery",
+                })
+
+                # Pack voltage
+                self._pub_config("sensor", dk, f"pack_{pack_num}_voltage", {
+                    "name": f"Pack {pack_num} Voltage",
+                    "device_class": "voltage",
+                    "unit_of_measurement": "V",
+                    "state_topic": f"pecron/{dk}/state",
+                    "value_template": f"{{{{ value_json.pack_{pack_num}_voltage }}}}",
+                    "device": dev_info,
+                    "unique_id": f"pecron_{dk}_pack_{pack_num}_voltage",
+                })
+
+                # Pack current
+                self._pub_config("sensor", dk, f"pack_{pack_num}_current", {
+                    "name": f"Pack {pack_num} Current",
+                    "device_class": "current",
+                    "unit_of_measurement": "A",
+                    "state_topic": f"pecron/{dk}/state",
+                    "value_template": f"{{{{ value_json.pack_{pack_num}_current }}}}",
+                    "device": dev_info,
+                    "unique_id": f"pecron_{dk}_pack_{pack_num}_current",
+                })
+
+                # Pack temperature
+                self._pub_config("sensor", dk, f"pack_{pack_num}_temp", {
+                    "name": f"Pack {pack_num} Temperature",
+                    "device_class": "temperature",
+                    "unit_of_measurement": "°C",
+                    "state_topic": f"pecron/{dk}/state",
+                    "value_template": f"{{{{ value_json.pack_{pack_num}_temp }}}}",
+                    "device": dev_info,
+                    "unique_id": f"pecron_{dk}_pack_{pack_num}_temp",
+                })
+
+                # Pack status
+                self._pub_config("sensor", dk, f"pack_{pack_num}_status", {
+                    "name": f"Pack {pack_num} Status",
+                    "icon": "mdi:battery-sync",
+                    "state_topic": f"pecron/{dk}/state",
+                    "value_template": f"{{{{ value_json.pack_{pack_num}_status }}}}",
+                    "device": dev_info,
+                    "unique_id": f"pecron_{dk}_pack_{pack_num}_status",
+                })
 
         log.info("Published Home Assistant discovery configs")
 
@@ -758,6 +928,70 @@ class HomeAssistantBridge:
                 cache["current"] = round(float(v), 2)
             except (TypeError, ValueError):
                 pass
+
+        # ---- Per-port DC input sensors (solar + barrel) ----
+        for field, rounding in [
+            ("dc5521_input_voltage", 1), ("dc5521_input_current", 2), ("dc5521_input_power", 0),
+            ("gx16mf1_input_voltage", 1), ("gx16mf1_input_current", 2), ("gx16mf1_input_power", 0),
+            ("gx16mf2_input_voltage", 1), ("gx16mf2_input_current", 2), ("gx16mf2_input_power", 0),
+        ]:
+            present, v = _get_first_present(SENSOR_FIELDS[field])
+            if present:
+                try:
+                    cache[field] = round(float(v), rounding) if rounding else int(float(v))
+                except (TypeError, ValueError):
+                    pass
+
+        # ---- AC output actual readings ----
+        present, v = _get_first_present(SENSOR_FIELDS["ac_output_hz"])
+        if present:
+            try:
+                cache["ac_output_hz"] = round(float(v), 1)
+            except (TypeError, ValueError):
+                pass
+
+        present, v = _get_first_present(SENSOR_FIELDS["ac_output_pf"])
+        if present:
+            try:
+                cache["ac_output_pf"] = round(float(v), 2)
+            except (TypeError, ValueError):
+                pass
+
+        # ---- Per-pack sensors (charging_pack_data_jdb) ----
+        packs = kv.get("charging_pack_data_jdb", [])
+        if isinstance(packs, list):
+            for i, pack in enumerate(packs[:4]):
+                if not isinstance(pack, dict):
+                    continue
+                try:
+                    status_val = int(float(pack.get("charging_pack_status", 4)))
+                except (TypeError, ValueError):
+                    status_val = 4
+                cache[f"pack_{i}_status"] = PACK_STATUS_LABELS.get(status_val, str(status_val))
+
+                try:
+                    bat = int(float(pack.get("charging_pack_battery", 0)))
+                    # Apply same swap fix: if battery=0 and status looks like a percentage
+                    if bat == 0 and 5 <= status_val <= 100:
+                        bat = status_val
+                    cache[f"pack_{i}_battery"] = bat
+                except (TypeError, ValueError):
+                    pass
+
+                try:
+                    cache[f"pack_{i}_voltage"] = round(float(pack.get("charging_pack_voltage", 0)), 1)
+                except (TypeError, ValueError):
+                    pass
+
+                try:
+                    cache[f"pack_{i}_current"] = round(float(pack.get("charging_pack_current", 0)), 2)
+                except (TypeError, ValueError):
+                    pass
+
+                try:
+                    cache[f"pack_{i}_temp"] = int(float(pack.get("charging_pack_temp", 0)))
+                except (TypeError, ValueError):
+                    pass
 
         # ---- SOC vs Host % ----
         # Your device alternates two payload shapes:

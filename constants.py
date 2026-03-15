@@ -109,6 +109,19 @@ SENSOR_FIELDS = {
     "dc_output_power": [("dc_data_output_hm", "dc_output_power")],
     "ac_input_power": [("ac_data_input_hm", "ac_power")],
     "dc_input_power": [("dc_data_input_hm", "dc_input_power")],
+    # Per-port DC input (solar ports + barrel)
+    "dc5521_input_voltage": [("dc_data_input_hm", "dc5521_input_voltage")],
+    "dc5521_input_current": [("dc_data_input_hm", "dc5521_input_current")],
+    "dc5521_input_power": [("dc_data_input_hm", "dc5521_input_power")],
+    "gx16mf1_input_voltage": [("dc_data_input_hm", "gx16mf1_input_voltage")],
+    "gx16mf1_input_current": [("dc_data_input_hm", "gx16mf1_input_current")],
+    "gx16mf1_input_power": [("dc_data_input_hm", "gx16mf1_input_power")],
+    "gx16mf2_input_voltage": [("dc_data_input_hm", "gx16mf2_input_voltage")],
+    "gx16mf2_input_current": [("dc_data_input_hm", "gx16mf2_input_current")],
+    "gx16mf2_input_power": [("dc_data_input_hm", "gx16mf2_input_power")],
+    # AC output frequency and power factor (actual readings, not settings)
+    "ac_output_hz": [("ac_data_output_hm", "ac_output_hz")],
+    "ac_output_pf": [("ac_data_output_hm", "ac_output_pf")],
     "ac_switch": [("ac_switch_hm",), ("host_packet_data_jdb","host_packet_ac_switch"), ("host_packet_data_jdb","ac_switch")],
     "dc_switch": [("dc_switch_hm",), ("host_packet_data_jdb","host_packet_dc_switch"), ("host_packet_data_jdb","dc_switch")],
     "ups_mode": [("ups_status_hm",), ("host_packet_data_jdb","host_packet_ups_status"), ("host_packet_data_jdb","ups_status")],
@@ -125,11 +138,32 @@ SENSOR_FIELDS = {
     "current": [
         ("host_packet_data_jdb", "host_packet_current"),
     ],
+    # Per-port DC input (solar ports + barrel jack)
+    "dc5521_input_voltage": [("dc_data_input_hm", "dc5521_input_voltage")],
+    "dc5521_input_current": [("dc_data_input_hm", "dc5521_input_current")],
+    "dc5521_input_power": [("dc_data_input_hm", "dc5521_input_power")],
+    "gx16mf1_input_voltage": [("dc_data_input_hm", "gx16mf1_input_voltage")],
+    "gx16mf1_input_current": [("dc_data_input_hm", "gx16mf1_input_current")],
+    "gx16mf1_input_power": [("dc_data_input_hm", "gx16mf1_input_power")],
+    "gx16mf2_input_voltage": [("dc_data_input_hm", "gx16mf2_input_voltage")],
+    "gx16mf2_input_current": [("dc_data_input_hm", "gx16mf2_input_current")],
+    "gx16mf2_input_power": [("dc_data_input_hm", "gx16mf2_input_power")],
+    # AC output actual readings (not settings)
+    "ac_output_hz": [("ac_data_output_hm", "ac_output_hz")],
+    "ac_output_pf": [("ac_data_output_hm", "ac_output_pf")],
 }
 
 # ---------------------------------------------------------------------------
 # Enum decode tables — maps raw enum index to human-readable label
 # ---------------------------------------------------------------------------
+
+PACK_STATUS_LABELS = {
+    0: "No Charge",
+    1: "Cascade Charging",
+    2: "Balance No Charge",
+    3: "Balanced Charging",
+    4: "No Connection",
+}
 
 DEVICE_STATUS_LABELS = {
     0: "Shut Down",
@@ -138,6 +172,14 @@ DEVICE_STATUS_LABELS = {
     3: "AC Discharge",
     4: "Standby",
     5: "Conservation",
+}
+
+PACK_STATUS_LABELS = {
+    0: "No Charge",
+    1: "Cascade Charging",
+    2: "Balance No Charge",
+    3: "Balanced Charging",
+    4: "No Connection",
 }
 
 # WB12200 charge limit voltage (enum index → actual voltage)

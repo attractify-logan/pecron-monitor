@@ -4,6 +4,17 @@ All notable changes to pecron-monitor are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] — 2026-03-15
+
+### Added
+- **Per-port solar/DC input sensors** — DC5521 (barrel jack), Solar Port 1 (GX16-MF1), Solar Port 2 (GX16-MF2) each expose voltage, current, and power as separate HA entities
+- **AC output frequency & power factor** — actual readings (not settings)
+- **Per-pack expansion battery sensors** — Packs 0-3 each expose battery %, voltage, current, temperature, and status (No Charge / Cascade Charging / Balance No Charge / Balanced Charging / No Connection)
+
+### Fixed
+- **Offline mode no longer spams high-freq errors** — `high_frequency_reporting` commands only sent when cloud MQTT is connected. SeanUhTron's local-only F3000LFP setup no longer logs `Cannot send control` errors every 20s.
+- Downgraded "Cannot send control" from ERROR to DEBUG level
+
 ## [0.6.0] — 2026-03-15
 
 ### 🎉 E3800LFP Full Telemetry — Data Gap Solved
