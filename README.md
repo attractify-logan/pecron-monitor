@@ -246,16 +246,6 @@ Don't see yours? It probably still works — `--setup` checks all known product 
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-## A Note to Pecron
-
-Hey Pecron team 👋 — we know you're watching. We love your hardware. The E3800LFP is a beast.
-
-But we had to reverse-engineer your mobile app's protocol via Android logcat captures to figure out that `high_frequency_reporting=3` unlocks full telemetry over MQTT. We sniffed your React Native logs. We decoded your Quectel IoT platform's TSL schemas. We brute-forced your local TCP encryption handshake.
-
-All because there's no public API documentation.
-
-You could save us (and your community) a lot of work by publishing an API spec. We'd even help write it. Just saying. 😄
-
 ## License
 
 MIT
