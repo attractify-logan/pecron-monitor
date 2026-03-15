@@ -90,9 +90,10 @@ class HomeAssistantBridge:
             name = device["device_name"]
             dev_info = {
                 "identifiers": [f"pecron_{dk}"],
-                "name": f"Pecron {name}",
+                "name": f"Pecron {name} ({dk})",
                 "manufacturer": "Pecron",
                 "model": name,
+                "serial_number": dk,
             }
 
             # Battery sensor
