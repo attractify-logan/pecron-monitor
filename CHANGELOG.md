@@ -4,6 +4,17 @@ All notable changes to pecron-monitor are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] — 2026-04-19
+
+### Fixed
+- **Cloud login failure no longer strands the monitor in offline mode forever** (#23). When a token refresh hits a transient network error (DNS outage, router reboot, ISP blip, etc.), the monitor falls back to offline mode as before — but now retries cloud re-login every `cloud_retry_interval` seconds (default: 300s). On a successful retry, MQTT is reconnected and local transports are refreshed automatically. User-requested `--offline` runs are never retried.
+- **Home Assistant MQTT bridge now retries a failed initial connection** (#23 follow-up). If the local MQTT broker is down when the monitor starts, the bridge attempts to reconnect every `homeassistant.retry_interval` seconds (default: 60s) instead of giving up permanently. `paho-mqtt`'s built-in auto-reconnect already handles drops after an established connection; this fix closes the startup gap.
+
+### Added
+- Two config knobs (both optional, safe defaults):
+  - `cloud_retry_interval` at the top level — seconds between cloud recovery attempts.
+  - `homeassistant.retry_interval` — seconds between HA broker reconnect attempts.
+
 ## [0.7.0] — 2026-04-04
 
 ### Added

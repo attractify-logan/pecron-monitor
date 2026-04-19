@@ -70,6 +70,12 @@ class PecronMonitor:
         # Option to skip setting up local transports (set by authenticate skip_local)
         self.skip_local_setup = False
 
+        # Cloud recovery state (issue #23). _fell_back_to_offline distinguishes
+        # an unplanned fallback (transient DNS/network failure during cloud login)
+        # from a user-requested offline run — only the former should be retried.
+        self._fell_back_to_offline = False
+        self._last_cloud_retry_at = 0.0
+
     def _next_packet_id(self) -> int:
         self._packet_id = (self._packet_id + 1) % 65535
         return self._packet_id
@@ -145,6 +151,7 @@ class PecronMonitor:
                     "Run --setup first to fetch and cache these credentials."
                 )
             self.offline_mode = True
+            self._fell_back_to_offline = False  # user-requested; no cloud retry
             log.info("🔒 OFFLINE MODE — using cached credentials from config.yaml")
             self._build_devices_from_config()
         elif not force_offline and can_offline:
@@ -159,9 +166,13 @@ class PecronMonitor:
                     raise RuntimeError("No valid devices found.")
                 if not self.skip_local_setup:
                     self._setup_local_transports()
+                self.offline_mode = False
+                self._fell_back_to_offline = False
             except Exception as e:
                 log.warning("Cloud login failed (%s), falling back to offline mode", e)
                 self.offline_mode = True
+                self._fell_back_to_offline = True  # issue #23: retry periodically
+                self._last_cloud_retry_at = time.time()
                 self._build_devices_from_config()
         else:
             # Normal cloud-first mode
@@ -1167,6 +1178,48 @@ class PecronMonitor:
             return True
         return time.time() > (self.token_data["expires_at"] - 300)
 
+    def _try_cloud_recovery(self) -> bool:
+        """Retry cloud login after a prior transient failure (issue #23).
+
+        Only triggers when we're in offline_mode AND the fallback was unplanned
+        (not --offline). On success, rejoins cloud MQTT and clears the flag.
+        """
+        if not self.offline_mode or not self._fell_back_to_offline:
+            return False
+        interval = self.config.get("cloud_retry_interval", 300)
+        now = time.time()
+        if now - self._last_cloud_retry_at < interval:
+            return False
+        self._last_cloud_retry_at = now
+
+        # Phase 1: prove cloud is reachable before mutating any state.
+        try:
+            log.info("Retrying cloud login (offline recovery)...")
+            token = login(self.config["email"], self.config["password"], self.region)
+            devices = resolve_devices(self.config, token["token"], self.region)
+            if not devices:
+                raise RuntimeError("Cloud login succeeded but no devices resolved")
+        except Exception as e:
+            log.info("Cloud retry failed: %s (next attempt in %ds)", e, interval)
+            return False
+
+        # Phase 2: login succeeded — apply state and rebuild MQTT/local transports.
+        self.token_data = token
+        self.devices = devices
+        self.offline_mode = False
+        self._fell_back_to_offline = False
+        log.info("Cloud recovered — reconnecting MQTT")
+        try:
+            if not self.skip_local_setup:
+                self._setup_local_transports()
+            self.connect_mqtt()
+        except Exception as e:
+            # A post-login MQTT/local failure shouldn't wedge us back in offline mode,
+            # but log loudly so operators see it. paho's auto-reconnect + the HA retry
+            # loop will recover on their own.
+            log.warning("Cloud recovered but MQTT/local setup hit an error: %s", e)
+        return True
+
     # --- MQTT connection ---
 
     def connect_mqtt(self):
@@ -1249,6 +1302,16 @@ class PecronMonitor:
                     self.authenticate(force_offline=force_offline)
                     self.connect_mqtt()
                     time.sleep(3)
+                else:
+                    # Issue #23: if we previously fell back to offline due to a
+                    # transient cloud failure, periodically attempt to recover.
+                    self._try_cloud_recovery()
+
+                # Issue #23 (secondary): retry local HA MQTT if it failed to
+                # connect at startup or was lost.
+                if self.ha_bridge:
+                    self.ha_bridge.try_reconnect()
+
                 self._request_status()
         except KeyboardInterrupt:
             log.info("Shutting down...")
