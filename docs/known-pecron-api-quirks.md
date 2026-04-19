@@ -12,6 +12,33 @@ The Pecron cloud API returns the same integer for both `remain_time` ("dischargi
 
 This is a firmware/API bug, not something any client library can fix. Originally reverse-engineered and published by jsight; we're citing their evidence directly.
 
+## `high_frequency_reporting` is ignored by E3600LFP firmware
+
+**First documented by:** [@brucehoult in pecron-monitor issue #14](https://github.com/attractify-logan/pecron-monitor/issues/14)
+**Affects:** Cloud MQTT on E3600LFP (E3800LFP still honors the setting)
+
+TSL property `high_frequency_reporting` (id=100, ENUM) is meant to make the device push telemetry every few seconds instead of the normal cadence. It works on E3800LFP, E1500LFP, and most other Pecron models — but on the E3600LFP the setting has no observable effect. @brucehoult verified this across multiple test cadences: sending `=3` every 20 seconds, every 5 minutes, or never at all, all produce identical behavior — one telemetry packet per value-type every ~20 minutes.
+
+pecron-monitor skips the send entirely for E3600/E3600LFP (see `MODEL_BEHAVIOR` in `constants.py`) to avoid wasting cloud requests. The only observed way to force faster telemetry on an E3600 is to leave the official Pecron mobile app open on the device's status screen — but that causes the "Insufficient resources" quota exhaustion documented in the next entry, so it's not a real workaround.
+
+## Pecron cloud `code 4026 — Insufficient resources` around 23:00 UTC daily
+
+**First documented by:** [@brucehoult in pecron-monitor issue #14](https://github.com/attractify-logan/pecron-monitor/issues/14)
+**Affects:** Cloud MQTT and REST on E3600LFP (possibly others — unconfirmed for now)
+
+Starting near 23:00-23:15 UTC, the Pecron cloud begins returning `type=BUSI-ERROR, code=4026, msg='Insufficient resources in the manufacturer's account. Please contact the device manufacturer.'` for control writes. Telemetry packets stop arriving. Service resumes like clockwork at 00:00 UTC — consistent with a daily quota reset on Pecron's side.
+
+@brucehoult reproduced this for four consecutive days after upgrading to v0.7.0, and importantly **it happens with pecron-monitor stopped and the Pecron app not open** — so the quota is attached to the manufacturer's account, not our request volume. Nothing pecron-monitor can do about it besides waiting for 00:00 UTC.
+
+If this affects your usage pattern, the 23:00 UTC window is a poor time to rely on automations that send control commands. The monitor continues running and will resume normal operation once the Pecron cloud clears its quota.
+
+## E3600LFP battery capacity is 3072Wh, not 3600Wh
+
+**First documented by:** [@brucehoult in pecron-monitor issue #14](https://github.com/attractify-logan/pecron-monitor/issues/14)
+**Affects:** Any calculation using `BATTERY_CAPACITY_WH`
+
+The "3600" in E3600LFP is the inverter wattage, not the battery capacity. The actual LiFePO4 pack is 3072Wh — identical to the F3000LFP. Easy to get wrong because every other model in the lineup names itself after the pack size (E1500LFP = 1536Wh, E3800LFP = 3840Wh, etc.). v0.7.0 shipped the wrong value; v0.7.2 corrects it.
+
 ## E3600LFP / E3800LFP telemetry arrives in alternating MQTT packets
 
 **First documented here:** [pecron-monitor issue #14](https://github.com/attractify-logan/pecron-monitor/issues/14)

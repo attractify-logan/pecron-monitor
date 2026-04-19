@@ -19,7 +19,7 @@ except ImportError:
 
 from helpers import _truthy, _get_kv, _get_kv_single
 from typing import Any, Optional
-from constants import DEVICE_STATUS_LABELS, REGIONS, DEFAULT_CONTROLS, SENSOR_FIELDS, BATTERY_CAPACITY_WH
+from constants import DEVICE_STATUS_LABELS, REGIONS, DEFAULT_CONTROLS, SENSOR_FIELDS, BATTERY_CAPACITY_WH, MODEL_BEHAVIOR
 from cloud_api import (
     login, resolve_devices, get_device_properties_rest, set_device_property_rest
 )
@@ -1158,10 +1158,14 @@ class PecronMonitor:
                 log.debug("Published TTLV read to %s (rc=%s, mid=%s)",
                           topic, result.rc, result.mid)
 
-            # If we haven't received MQTT data for this device yet, try REST API
-            if dk not in self.latest_data:
+            # If we haven't received MQTT data for this device yet, try REST API.
+            # In rest_only mode there is no MQTT or local TCP, so we must re-fetch
+            # every poll rather than only on the first time (fix from @brucehoult
+            # in issue #14 — otherwise --rest-only stops updating after cycle 1).
+            if self.rest_only or dk not in self.latest_data:
                 if self.token_data:  # Only available if not in offline mode
-                    log.debug("No MQTT data for %s yet, trying REST API fallback...", dk)
+                    log.debug("Fetching status via REST API for %s (rest_only=%s, cached=%s)...",
+                              dk, self.rest_only, dk in self.latest_data)
                     kv = get_device_properties_rest(
                         self.token_data["token"], self.region,
                         device["product_key"], dk
@@ -1323,25 +1327,39 @@ class PecronMonitor:
             if self.ha_bridge:
                 self.ha_bridge.disconnect()
 
+    @staticmethod
+    def _high_freq_effective(device: dict) -> bool:
+        """Return False for models where high_frequency_reporting is a known no-op
+        (issue #14 — E3600LFP ignores the setting; don't waste cloud requests)."""
+        name = device.get("device_name") or device.get("product_name") or ""
+        return MODEL_BEHAVIOR.get(name, {}).get("high_freq_effective", True)
+
     def _enable_high_freq_reporting(self, stagger: float = 0):
         """Enable high-frequency MQTT reporting on all devices for fast cache warm-up.
-        
+
         Args:
             stagger: Seconds to wait between devices (helps cloud process multi-device requests)
         """
-        for i, d in enumerate(self.devices):
+        effective = [d for d in self.devices if self._high_freq_effective(d)]
+        skipped = [d for d in self.devices if not self._high_freq_effective(d)]
+        for d in skipped:
+            log.debug("Skipping high-freq enable for %s — ineffective on this model (issue #14)",
+                      d.get("device_name") or d["device_key"])
+        for i, d in enumerate(effective):
             dk = d["device_key"]
             try:
                 self.send_control(dk, "high_frequency_reporting", 3)
                 log.info("Enabled high-freq reporting for %s", dk)
             except Exception as e:
                 log.debug("Could not enable high-freq for %s: %s", dk, e)
-            if stagger > 0 and i < len(self.devices) - 1:
+            if stagger > 0 and i < len(effective) - 1:
                 time.sleep(stagger)
 
     def _disable_high_freq_reporting(self):
         """Disable high-frequency reporting after warm-up period."""
         for d in self.devices:
+            if not self._high_freq_effective(d):
+                continue  # never enabled → nothing to disable
             dk = d["device_key"]
             try:
                 self.send_control(dk, "high_frequency_reporting", 0)
@@ -1396,17 +1414,10 @@ class PecronMonitor:
             self.connect_mqtt()
             time.sleep(3)
             # Enable high-freq reporting for devices that need it (E3600/E3800)
-            # Stagger requests to avoid cloud throttling for multi-device setups
+            # Stagger requests to avoid cloud throttling for multi-device setups.
+            # Use the shared helper so the per-model skip (issue #14) applies here too.
             if self.mqtt_client:
-                for i, d in enumerate(self.devices):
-                    dk = d["device_key"]
-                    try:
-                        self.send_control(dk, "high_frequency_reporting", 3)
-                        log.info("Enabled high-freq reporting for %s", dk)
-                    except Exception as e:
-                        log.debug("Could not enable high-freq for %s: %s", dk, e)
-                    if i < len(self.devices) - 1:
-                        time.sleep(1)  # Stagger between devices
+                self._enable_high_freq_reporting(stagger=1)
                 time.sleep(2)  # Give devices time to switch modes
         self._request_status()
         
@@ -1582,7 +1593,11 @@ class PecronMonitor:
         if not self.latest_data:
             print("No data received — device may be offline.")
 
+        # Leave the device in its normal cadence — don't strand it in high-freq
+        # mode after a one-shot --status run (would burn cloud quota if another
+        # process checks status often). Cheap no-op for skipped models.
         if self.mqtt_client:
+            self._disable_high_freq_reporting()
             self.mqtt_client.loop_stop()
             self.mqtt_client.disconnect()
 

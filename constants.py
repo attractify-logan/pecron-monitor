@@ -60,10 +60,27 @@ BATTERY_CAPACITY_WH = {
     "E2000LFP": "1920",
     "E2400LFP": "2048",
     "F3000LFP": "3072",
-    "E3600": "3600",
-    "E3600LFP": "3600",
+    # E3600 / E3600LFP: the "3600" in the name is the inverter wattage; actual
+    # LiFePO4 pack is 3072Wh (same as the F3000LFP). Caught by @brucehoult in
+    # issue #14 after v0.7.0 shipped the wrong value.
+    "E3600": "3072",
+    "E3600LFP": "3072",
     "E3800LFP": "3840",
     "F5000LFP": "5120",
+}
+
+# Per-model behavior flags. Used to skip operations that are known to be
+# no-ops or harmful on specific firmware. Unlisted models default to the
+# permissive baseline ({"high_freq_effective": True}).
+#
+# high_freq_effective=False: sending `high_frequency_reporting=3` to this
+# model has no observable effect on MQTT cadence. @brucehoult verified this
+# on E3600LFP (issue #14) across many cadences — data still arrives every
+# ~20 minutes regardless. Skipping the send saves cloud requests and reduces
+# noise when the device is running near Pecron's quota ceiling.
+MODEL_BEHAVIOR: dict[str, dict[str, bool]] = {
+    "E3600": {"high_freq_effective": False},
+    "E3600LFP": {"high_freq_effective": False},
 }
 
 # ---------------------------------------------------------------------------

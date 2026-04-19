@@ -20,7 +20,7 @@ Usage:
     python pecron_monitor.py --homeassistant # Start with Home Assistant MQTT bridge
 """
 
-__version__ = "0.7.1"
+__version__ = "0.7.2"
 
 import argparse
 import json
@@ -183,7 +183,9 @@ def main():
             print(json.dumps({dk: kv}, indent=2, default=str))
         if not monitor.latest_data:
             print("No data received — device may be offline.")
+        # Don't leave the device stranded in high-freq mode after --raw exits.
         if monitor.mqtt_client:
+            monitor._disable_high_freq_reporting()
             monitor.mqtt_client.loop_stop()
             monitor.mqtt_client.disconnect()
         return
