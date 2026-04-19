@@ -46,7 +46,7 @@ class HomeAssistantBridge:
         self._last_state = {}  # device_key -> dict
 
     def connect(self):
-        """Initial connection attempt. If it fails the bridge is not fatal —
+        """Initial connection attempt. If it fails the bridge is not fatal;
         the monitor's main loop will call try_reconnect() periodically."""
         self._last_retry_at = time.time()
         self._connect_attempt()
@@ -109,7 +109,7 @@ class HomeAssistantBridge:
             client.loop_start()
             self.client = client
         except (ConnectionRefusedError, OSError) as e:
-            log.error("Cannot connect to MQTT broker at %s:%d — %s. Will retry every %ds.",
+            log.error("Cannot connect to MQTT broker at %s:%d (%s). Will retry every %ds.",
                       host, port, e, self._retry_interval)
             self._connected = False
             self.client = None

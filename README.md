@@ -1,6 +1,6 @@
 # Pecron Battery Monitor
 
-**v0.7.0** · [Changelog](CHANGELOG.md)
+**v0.8.0** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest)
 
 Monitor and control Pecron portable power stations from the command line — no phone app required.
 
@@ -265,11 +265,11 @@ Don't see yours? It probably still works — `--setup` checks all known product 
 
 ## Related Projects
 
-- [**jsight/unofficial-pecron-api**](https://github.com/jsight/unofficial-pecron-api) — a clean Python library for the Pecron cloud REST API, published to PyPI (`pip install unofficial-pecron-api`). If you only need cloud access from Python (no local TCP, BLE, MQTT streaming, or Home Assistant integration) and want a well-typed SDK with dataclass models and a focused CLI, it's a great choice. Separate reverse-engineering effort — credit for a few of the Pecron API quirks documented [here](docs/known-pecron-api-quirks.md) belongs to that project.
+- [**jsight/unofficial-pecron-api**](https://github.com/jsight/unofficial-pecron-api): a clean Python library for the Pecron cloud REST API, published to PyPI (`pip install unofficial-pecron-api`). If you only need cloud access from Python (no local TCP, BLE, MQTT streaming, or Home Assistant integration) and want a well-typed SDK with dataclass models and a focused CLI, it's a great choice. Separate reverse-engineering effort. Credit for a few of the Pecron API quirks documented [here](docs/known-pecron-api-quirks.md) belongs to that project.
 
 ## Known Pecron API Quirks
 
-Bugs and oddities in Pecron's cloud API / device firmware that affect integrations — see [docs/known-pecron-api-quirks.md](docs/known-pecron-api-quirks.md).
+Bugs and oddities in Pecron's cloud API / device firmware that affect integrations. See [docs/known-pecron-api-quirks.md](docs/known-pecron-api-quirks.md).
 
 ## Contributing
 

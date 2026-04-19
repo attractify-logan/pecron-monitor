@@ -61,7 +61,7 @@ BATTERY_CAPACITY_WH = {
     "E2400LFP": "2048",
     "F3000LFP": "3072",
     # E3600 / E3600LFP: the "3600" in the name is the inverter wattage; actual
-    # LiFePO4 pack is 3072Wh (same as the F3000LFP). Caught by @brucehoult in
+    # LiFePO4 pack is 3072Wh, same as the F3000LFP. Caught by @brucehoult in
     # issue #14 after v0.7.0 shipped the wrong value.
     "E3600": "3072",
     "E3600LFP": "3072",
@@ -75,7 +75,7 @@ BATTERY_CAPACITY_WH = {
 #
 # high_freq_effective=False: sending `high_frequency_reporting=3` to this
 # model has no observable effect on MQTT cadence. @brucehoult verified this
-# on E3600LFP (issue #14) across many cadences — data still arrives every
+# on E3600LFP (issue #14) across many cadences. Data still arrives every
 # ~20 minutes regardless. Skipping the send saves cloud requests and reduces
 # noise when the device is running near Pecron's quota ceiling.
 MODEL_BEHAVIOR: dict[str, dict[str, bool]] = {

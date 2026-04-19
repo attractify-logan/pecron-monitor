@@ -72,7 +72,7 @@ class PecronMonitor:
 
         # Cloud recovery state (issue #23). _fell_back_to_offline distinguishes
         # an unplanned fallback (transient DNS/network failure during cloud login)
-        # from a user-requested offline run — only the former should be retried.
+        # from a user-requested offline run. Only the former should be retried.
         self._fell_back_to_offline = False
         self._last_cloud_retry_at = 0.0
 
@@ -1161,7 +1161,7 @@ class PecronMonitor:
             # If we haven't received MQTT data for this device yet, try REST API.
             # In rest_only mode there is no MQTT or local TCP, so we must re-fetch
             # every poll rather than only on the first time (fix from @brucehoult
-            # in issue #14 — otherwise --rest-only stops updating after cycle 1).
+            # in issue #14; otherwise --rest-only stops updating after cycle 1).
             if self.rest_only or dk not in self.latest_data:
                 if self.token_data:  # Only available if not in offline mode
                     log.debug("Fetching status via REST API for %s (rest_only=%s, cached=%s)...",
@@ -1207,12 +1207,12 @@ class PecronMonitor:
             log.info("Cloud retry failed: %s (next attempt in %ds)", e, interval)
             return False
 
-        # Phase 2: login succeeded — apply state and rebuild MQTT/local transports.
+        # Phase 2: login succeeded. Apply state and rebuild MQTT/local transports.
         self.token_data = token
         self.devices = devices
         self.offline_mode = False
         self._fell_back_to_offline = False
-        log.info("Cloud recovered — reconnecting MQTT")
+        log.info("Cloud recovered, reconnecting MQTT")
         try:
             if not self.skip_local_setup:
                 self._setup_local_transports()
@@ -1330,7 +1330,7 @@ class PecronMonitor:
     @staticmethod
     def _high_freq_effective(device: dict) -> bool:
         """Return False for models where high_frequency_reporting is a known no-op
-        (issue #14 — E3600LFP ignores the setting; don't waste cloud requests)."""
+        (issue #14: E3600LFP ignores the setting; don't waste cloud requests)."""
         name = device.get("device_name") or device.get("product_name") or ""
         return MODEL_BEHAVIOR.get(name, {}).get("high_freq_effective", True)
 
@@ -1343,7 +1343,7 @@ class PecronMonitor:
         effective = [d for d in self.devices if self._high_freq_effective(d)]
         skipped = [d for d in self.devices if not self._high_freq_effective(d)]
         for d in skipped:
-            log.debug("Skipping high-freq enable for %s — ineffective on this model (issue #14)",
+            log.debug("Skipping high-freq enable for %s (ineffective on this model, issue #14)",
                       d.get("device_name") or d["device_key"])
         for i, d in enumerate(effective):
             dk = d["device_key"]
@@ -1593,9 +1593,9 @@ class PecronMonitor:
         if not self.latest_data:
             print("No data received — device may be offline.")
 
-        # Leave the device in its normal cadence — don't strand it in high-freq
-        # mode after a one-shot --status run (would burn cloud quota if another
-        # process checks status often). Cheap no-op for skipped models.
+        # Leave the device in its normal cadence. Don't strand it in high-freq
+        # mode after a one-shot --status run; that would burn cloud quota if
+        # another process checks status often. Cheap no-op for skipped models.
         if self.mqtt_client:
             self._disable_high_freq_reporting()
             self.mqtt_client.loop_stop()

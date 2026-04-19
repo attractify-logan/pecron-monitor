@@ -4,34 +4,38 @@ All notable changes to pecron-monitor are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
-## [0.7.2] — 2026-04-19
+## [0.8.0] - 2026-04-19
+
+Consolidates the 0.7.1 and 0.7.2 reliability work into a single release so users pinning versions see a clear signal for the new retry loops, the new config knobs, and the new per-model behavior system. No code differences from 0.7.2 itself.
+
+## [0.7.2] - 2026-04-19
 
 Targeted E3600LFP follow-ups from #14, informed by detailed testing and debugging from @brucehoult and @derekclawson.
 
 ### Fixed
-- **E3600 / E3600LFP battery capacity was wrong** (#14). v0.7.0 set `BATTERY_CAPACITY_WH["E3600LFP"] = 3600`, but "3600" in the model name refers to the inverter wattage — the actual LiFePO4 pack is **3072Wh** (same as the F3000LFP). Caught by @brucehoult. All displays, alerts, and time-to-empty estimates now use the correct capacity.
-- **`--rest-only` stopped refreshing data after the first poll** (#14). In rest-only mode, `_request_status()` guarded the REST fetch with `if dk not in self.latest_data:` — so after cycle 1 the device appeared frozen. Now re-fetches every poll when `rest_only=True`. Fix from @brucehoult.
+- **E3600 / E3600LFP battery capacity was wrong** (#14). v0.7.0 set `BATTERY_CAPACITY_WH["E3600LFP"] = 3600`, but "3600" in the model name refers to the inverter wattage, not the pack. Actual LiFePO4 pack is **3072Wh** (same as the F3000LFP). Caught by @brucehoult. All displays, alerts, and time-to-empty estimates now use the correct capacity.
+- **`--rest-only` stopped refreshing data after the first poll** (#14). In rest-only mode, `_request_status()` guarded the REST fetch with `if dk not in self.latest_data:`, so after cycle 1 the device appeared frozen. Now re-fetches every poll when `rest_only=True`. Fix from @brucehoult.
 - **`--status` and `--raw` left the device in high-freq mode on exit**. Both one-shot commands now call `_disable_high_freq_reporting()` before shutting down MQTT, preventing a single CLI invocation from leaving the device burning cloud quota indefinitely.
 
 ### Changed
-- **Skip `high_frequency_reporting` sends on models where it's a known no-op** (#14). `@brucehoult` verified on E3600LFP that the setting has no observable effect across multiple cadences — telemetry arrives every ~20 minutes regardless. New `MODEL_BEHAVIOR` map in `constants.py` lets us mark a model's `high_freq_effective=False`; the enable/disable helpers and `--status` path respect it. E3600 and E3600LFP are now skipped. E3800LFP and E1500LFP behavior is unchanged.
+- **Skip `high_frequency_reporting` sends on models where it's a known no-op** (#14). `@brucehoult` verified on E3600LFP that the setting has no observable effect across multiple cadences; telemetry arrives every ~20 minutes regardless. New `MODEL_BEHAVIOR` map in `constants.py` lets us mark a model's `high_freq_effective=False`; the enable/disable helpers and `--status` path respect it. E3600 and E3600LFP are now skipped. E3800LFP and E1500LFP behavior is unchanged.
 
 ### Docs
 - `docs/known-pecron-api-quirks.md` updated with three new entries:
   - E3600LFP ignores `high_frequency_reporting` (credit: @brucehoult).
-  - Pecron cloud returns `code 4026 — Insufficient resources` daily at ~23:00 UTC until 00:00 UTC reset (credit: @brucehoult, reproducible with the service stopped and the app closed).
+  - Pecron cloud returns `code 4026 Insufficient resources` daily at ~23:00 UTC until 00:00 UTC reset (credit: @brucehoult, reproducible with the service stopped and the app closed).
   - E3600LFP battery capacity is 3072Wh, not 3600Wh.
 
-## [0.7.1] — 2026-04-19
+## [0.7.1] - 2026-04-19
 
 ### Fixed
-- **Cloud login failure no longer strands the monitor in offline mode forever** (#23). When a token refresh hits a transient network error (DNS outage, router reboot, ISP blip, etc.), the monitor falls back to offline mode as before — but now retries cloud re-login every `cloud_retry_interval` seconds (default: 300s). On a successful retry, MQTT is reconnected and local transports are refreshed automatically. User-requested `--offline` runs are never retried.
+- **Cloud login failure no longer strands the monitor in offline mode forever** (#23). When a token refresh hits a transient network error (DNS outage, router reboot, ISP blip, etc.), the monitor falls back to offline mode as before, then retries cloud re-login every `cloud_retry_interval` seconds (default: 300s). On a successful retry, MQTT is reconnected and local transports are refreshed automatically. User-requested `--offline` runs are never retried.
 - **Home Assistant MQTT bridge now retries a failed initial connection** (#23 follow-up). If the local MQTT broker is down when the monitor starts, the bridge attempts to reconnect every `homeassistant.retry_interval` seconds (default: 60s) instead of giving up permanently. `paho-mqtt`'s built-in auto-reconnect already handles drops after an established connection; this fix closes the startup gap.
 
 ### Added
 - Two config knobs (both optional, safe defaults):
-  - `cloud_retry_interval` at the top level — seconds between cloud recovery attempts.
-  - `homeassistant.retry_interval` — seconds between HA broker reconnect attempts.
+  - `cloud_retry_interval` at the top level: seconds between cloud recovery attempts.
+  - `homeassistant.retry_interval`: seconds between HA broker reconnect attempts.
 
 ## [0.7.0] — 2026-04-04
 
