@@ -6,19 +6,12 @@ known no-op (E3600LFP) and still sent for models where it's effective.
 """
 
 import base64
-import os
-import sys
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-sys.path.insert(0, os.path.dirname(__file__))
-
-sys.modules['paho'] = MagicMock()
-sys.modules['paho.mqtt'] = MagicMock()
-sys.modules['paho.mqtt.client'] = MagicMock()
-
-from constants import MODEL_BEHAVIOR  # noqa: E402
-from monitor import PecronMonitor  # noqa: E402
+# sys.path + paho mocking are handled globally by tests/conftest.py
+from constants import MODEL_BEHAVIOR
+from monitor import PecronMonitor
 
 FAKE_AUTH = base64.b64encode(b"0123456789abcdef").decode()
 

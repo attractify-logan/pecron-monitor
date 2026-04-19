@@ -9,20 +9,12 @@ Verifies:
 """
 
 import base64
-import os
-import sys
 import time
 import unittest
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, os.path.dirname(__file__))
-
-# Mock paho.mqtt before importing pecron_monitor (same trick as test_local_fix.py)
-sys.modules['paho'] = MagicMock()
-sys.modules['paho.mqtt'] = MagicMock()
-sys.modules['paho.mqtt.client'] = MagicMock()
-
-from monitor import PecronMonitor  # noqa: E402
+# sys.path + paho mocking are handled globally by tests/conftest.py
+from monitor import PecronMonitor
 
 FAKE_AUTH_KEY = base64.b64encode(b"0123456789abcdef").decode()
 

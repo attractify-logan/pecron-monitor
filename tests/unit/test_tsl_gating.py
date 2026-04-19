@@ -6,18 +6,10 @@ TSL resource code, so HA discovery skips entities the device doesn't actually
 support instead of emitting them and letting HA show 'Unknown' forever.
 """
 
-import os
-import sys
 import unittest
-from unittest.mock import MagicMock
 
-sys.path.insert(0, os.path.dirname(__file__))
-
-sys.modules["paho"] = MagicMock()
-sys.modules["paho.mqtt"] = MagicMock()
-sys.modules["paho.mqtt.client"] = MagicMock()
-
-from ha_bridge import HomeAssistantBridge  # noqa: E402
+# sys.path + paho mocking are handled globally by tests/conftest.py
+from ha_bridge import HomeAssistantBridge
 
 
 # Realistic TSL caches pulled from the live devices on Stills.

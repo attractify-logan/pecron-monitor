@@ -14,18 +14,11 @@ populating cache keys that would render as '0' ghost entities in HA:
    actual state instead of Unknown.
 """
 
-import os
-import sys
 import unittest
 from unittest.mock import MagicMock
 
-sys.path.insert(0, os.path.dirname(__file__))
-
-sys.modules["paho"] = MagicMock()
-sys.modules["paho.mqtt"] = MagicMock()
-sys.modules["paho.mqtt.client"] = MagicMock()
-
-from ha_bridge import HomeAssistantBridge  # noqa: E402
+# sys.path + paho mocking are handled globally by tests/conftest.py
+from ha_bridge import HomeAssistantBridge
 
 
 def make_bridge():

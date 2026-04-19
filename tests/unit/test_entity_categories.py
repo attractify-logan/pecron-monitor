@@ -7,18 +7,11 @@ main device view.
 """
 
 import json
-import os
-import sys
 import unittest
 from unittest.mock import MagicMock
 
-sys.path.insert(0, os.path.dirname(__file__))
-
-sys.modules["paho"] = MagicMock()
-sys.modules["paho.mqtt"] = MagicMock()
-sys.modules["paho.mqtt.client"] = MagicMock()
-
-from ha_bridge import HomeAssistantBridge, ENTITY_CATEGORIES, entity_category_for  # noqa: E402
+# sys.path + paho mocking are handled globally by tests/conftest.py
+from ha_bridge import HomeAssistantBridge, ENTITY_CATEGORIES, entity_category_for
 
 
 class TestEntityCategoryHelper(unittest.TestCase):
