@@ -967,10 +967,22 @@ class HomeAssistantBridge:
         # ---- Core sensors ----
         # For these, only overwrite when their source field exists in the payload shape.
         # Accept 0 as a real reading *only if the source path is present*.
+
+        # Voltage is special: 0 is never a legitimate reading on a live battery
+        # pack (the bus voltage is always >0 while the device can respond at all).
+        # A 0.0V value in the packet means the packet was a settings-only shape
+        # that carried a placeholder, not that voltage actually dropped to zero.
+        # Skip the update in that case; HA graphs stop showing spurious dips,
+        # the cached last-known-good value stays visible, and real readings
+        # always overwrite it as soon as they arrive. Issue #36.
         present, v = _get_first_present(SENSOR_FIELDS["voltage"])
         if present:
             try:
-                cache["voltage"] = round(float(v), 1)
+                new_voltage = round(float(v), 1)
+                if new_voltage > 0:
+                    cache["voltage"] = new_voltage
+                # else: keep the cached value if any; leave cache untouched
+                # otherwise so HA shows Unknown until a real reading arrives.
             except (TypeError, ValueError):
                 pass
 

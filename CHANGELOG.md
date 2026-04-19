@@ -4,6 +4,11 @@ All notable changes to pecron-monitor are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.7.4] - 2026-04-19
+
+### Fixed
+- **HA voltage sensor no longer dips to 0.0V on packet flaps** (#36). The cloud MQTT / local TCP transport occasionally delivers a settings-only packet shape that resolves the voltage field to 0.0V even while the device is healthy. ha_bridge previously accepted the 0.0V as a real reading, so HA graphs showed spurious dips and low-voltage alerts could false-fire. Voltage is now treated as sticky-non-zero: a 0.0V value is ignored whenever the cache holds a positive reading, and the initial cache is left empty (HA shows Unknown) instead of being seeded at 0 before real data arrives. Credit for the reproduction: @brucehoult in #14.
+
 ## [0.7.3] - 2026-04-19
 
 ### Changed
