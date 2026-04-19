@@ -60,15 +60,15 @@ ENTITY_CATEGORIES = {
     "ac_input": "diagnostic",
     "dc_input": "diagnostic",
     "ac_output_pf": "diagnostic",
+    # DC5521 barrel jack is typically the AC adapter brick input, not a user-
+    # interesting reading for most setups. Keep it in diagnostic.
     "dc5521_input_voltage": "diagnostic",
     "dc5521_input_current": "diagnostic",
     "dc5521_input_power": "diagnostic",
-    "gx16mf1_input_voltage": "diagnostic",
-    "gx16mf1_input_current": "diagnostic",
-    "gx16mf1_input_power": "diagnostic",
-    "gx16mf2_input_voltage": "diagnostic",
-    "gx16mf2_input_current": "diagnostic",
-    "gx16mf2_input_power": "diagnostic",
+    # GX16-MF1 / GX16-MF2 are the solar inputs. On van / RV / off-grid setups
+    # these are the primary story, so they stay in the main device view. Idle
+    # ports still get suppressed to null by the port-gating logic in
+    # publish_state, so unused solar inputs show Unknown rather than cluttering.
     "remaining_charging_time": "diagnostic",  # duplicates remaining_time due to Pecron API bug (jsight issue #1)
     "device_status": "diagnostic",
     "expansion_pack": "diagnostic",

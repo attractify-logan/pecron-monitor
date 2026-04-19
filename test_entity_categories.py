@@ -58,6 +58,18 @@ class TestEntityCategoryHelper(unittest.TestCase):
         self.assertIsNone(entity_category_for("some_future_entity"))
         self.assertIsNone(entity_category_for(""))
 
+    def test_solar_ports_are_main_view(self):
+        """GX16 solar inputs live in main view because van/off-grid setups
+        care about them at a glance. DC5521 (usually the AC-adapter jack)
+        stays diagnostic."""
+        for key in ["gx16mf1_input_voltage", "gx16mf1_input_current", "gx16mf1_input_power",
+                    "gx16mf2_input_voltage", "gx16mf2_input_current", "gx16mf2_input_power"]:
+            self.assertIsNone(entity_category_for(key),
+                              f"solar port {key} must be main view, not diagnostic")
+        for key in ["dc5521_input_voltage", "dc5521_input_current", "dc5521_input_power"]:
+            self.assertEqual(entity_category_for(key), "diagnostic",
+                             f"DC5521 barrel jack {key} stays diagnostic")
+
 
 class TestPubConfigInjectsCategory(unittest.TestCase):
     """_pub_config() should inject entity_category into the discovery payload
