@@ -1,6 +1,6 @@
 # Pecron Battery Monitor
 
-**v0.8.0** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest)
+**v0.7.2** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest)
 
 Monitor and control Pecron portable power stations from the command line — no phone app required.
 

@@ -4,10 +4,6 @@ All notable changes to pecron-monitor are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
-## [0.8.0] - 2026-04-19
-
-Consolidates the 0.7.1 and 0.7.2 reliability work into a single release so users pinning versions see a clear signal for the new retry loops, the new config knobs, and the new per-model behavior system. No code differences from 0.7.2 itself.
-
 ## [0.7.2] - 2026-04-19
 
 Targeted E3600LFP follow-ups from #14, informed by detailed testing and debugging from @brucehoult and @derekclawson.
