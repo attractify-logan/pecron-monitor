@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""Tests for ghost-pack / idle-port / SOC-fallback suppression.
+
+Covers the three behavior changes that stop ha_bridge.publish_state from
+populating cache keys that would render as '0' ghost entities in HA:
+
+1. Per-pack sensors (pack_N_*) skipped when the slot reports status=4
+   ('No Connection', i.e. no expansion pack in that bay).
+2. Per-port DC-input sensors (dc5521, gx16mf1, gx16mf2) skipped when the
+   port reports voltage=0 AND current=0 AND power=0 (nothing plugged in
+   to that port, or the device model doesn't have the port).
+3. soc_percent falls back to host_percent when the device only emits host-
+   shape packets (E1500LFP), so HA's Battery (SOC) entity reflects the
+   actual state instead of Unknown.
+"""
+
+import os
+import sys
+import unittest
+from unittest.mock import MagicMock
+
+sys.path.insert(0, os.path.dirname(__file__))
+
+sys.modules["paho"] = MagicMock()
+sys.modules["paho.mqtt"] = MagicMock()
+sys.modules["paho.mqtt.client"] = MagicMock()
+
+from ha_bridge import HomeAssistantBridge  # noqa: E402
+
+
+def make_bridge():
+    b = HomeAssistantBridge({"discovery_prefix": "homeassistant"}, devices=[])
+    b.client = MagicMock()
+    b._connected = True
+    b._published_topics = set()
+    return b
+
+
+# -------------------- Ghost pack suppression --------------------
+
+
+class TestPackSuppression(unittest.TestCase):
+
+    def _pack(self, status, battery=0, voltage=0.0, current=0.0, temp=0):
+        return {
+            "charging_pack_status": status,
+            "charging_pack_battery": battery,
+            "charging_pack_voltage": voltage,
+            "charging_pack_current": current,
+            "charging_pack_temp": temp,
+        }
+
+    def test_disconnected_pack_produces_no_cache_keys(self):
+        """Status 4 = No Connection. All pack_1_* keys absent from cache."""
+        b = make_bridge()
+        kv = {
+            "host_packet_data_jdb": {
+                "host_packet_voltage": 53.1,
+                "host_packet_electric_percentage": 98,
+            },
+            "charging_pack_data_jdb": [
+                self._pack(status=3, battery=95, voltage=53.0, current=0.5, temp=30),  # connected
+                self._pack(status=4),  # No Connection
+                self._pack(status=4),
+                self._pack(status=4),
+            ],
+        }
+        b.publish_state("DEV1", kv)
+        cache = b._state_cache["DEV1"]
+        # Connected slot (0): all five keys present
+        for k in ["pack_0_status", "pack_0_battery", "pack_0_voltage",
+                  "pack_0_current", "pack_0_temp"]:
+            self.assertIn(k, cache, f"connected pack must populate {k}")
+        # Disconnected slots: NO keys present
+        for i in [1, 2, 3]:
+            for suffix in ["status", "battery", "voltage", "current", "temp"]:
+                self.assertNotIn(f"pack_{i}_{suffix}", cache,
+                                 f"disconnected pack_{i} must not populate pack_{i}_{suffix}")
+
+    def test_previously_cached_pack_cleared_when_disconnected(self):
+        """If a pack WAS connected and is now status=4, clear stale cache entries."""
+        b = make_bridge()
+        # Seed cache with a previously connected pack 1
+        b._state_cache["DEV1"] = {
+            "pack_1_battery": 80, "pack_1_voltage": 52.0,
+            "pack_1_current": 0.3, "pack_1_temp": 28, "pack_1_status": "Charging",
+        }
+        kv = {
+            "host_packet_data_jdb": {"host_packet_voltage": 53.1,
+                                      "host_packet_electric_percentage": 98},
+            "charging_pack_data_jdb": [self._pack(status=4)] * 4,
+        }
+        b.publish_state("DEV1", kv)
+        cache = b._state_cache["DEV1"]
+        for suffix in ["status", "battery", "voltage", "current", "temp"]:
+            self.assertNotIn(f"pack_1_{suffix}", cache,
+                             f"stale pack_1_{suffix} must be cleared after disconnect")
+
+
+# -------------------- Idle port suppression --------------------
+
+
+class TestPortSuppression(unittest.TestCase):
+
+    def _kv(self, **port_values):
+        """Build a kv that places per-port values under dc_data_input_hm,
+        matching SENSOR_FIELDS paths."""
+        return {
+            "host_packet_data_jdb": {"host_packet_voltage": 53.1,
+                                      "host_packet_electric_percentage": 98},
+            "dc_data_input_hm": port_values,
+        }
+
+    def test_idle_port_produces_no_cache_keys(self):
+        """All three readings at 0 on a port -> no cache entries for that port."""
+        b = make_bridge()
+        kv = self._kv(
+            dc5521_input_voltage=0, dc5521_input_current=0, dc5521_input_power=0,
+            gx16mf1_input_voltage=0, gx16mf1_input_current=0, gx16mf1_input_power=0,
+            gx16mf2_input_voltage=18.2, gx16mf2_input_current=2.1, gx16mf2_input_power=38,
+        )
+        b.publish_state("DEV1", kv)
+        cache = b._state_cache["DEV1"]
+        for port in ["dc5521", "gx16mf1"]:
+            for suffix in ["voltage", "current", "power"]:
+                self.assertNotIn(f"{port}_input_{suffix}", cache,
+                                 f"idle port {port} must not populate {port}_input_{suffix}")
+        # Active port: all three present
+        for suffix in ["voltage", "current", "power"]:
+            self.assertIn(f"gx16mf2_input_{suffix}", cache,
+                          f"active port gx16mf2 must still populate {suffix}")
+
+    def test_port_with_voltage_only_stays(self):
+        """Sense-only case: panel wired but not pulling current yet. Keep the port."""
+        b = make_bridge()
+        kv = self._kv(
+            dc5521_input_voltage=19.0, dc5521_input_current=0.0, dc5521_input_power=0,
+            gx16mf1_input_voltage=0, gx16mf1_input_current=0, gx16mf1_input_power=0,
+            gx16mf2_input_voltage=0, gx16mf2_input_current=0, gx16mf2_input_power=0,
+        )
+        b.publish_state("DEV1", kv)
+        cache = b._state_cache["DEV1"]
+        self.assertIn("dc5521_input_voltage", cache,
+                      "sense-only port (V>0, I=0) must stay; it's wired up")
+
+
+# -------------------- SOC fallback --------------------
+
+
+class TestSocFallback(unittest.TestCase):
+
+    def test_soc_falls_back_to_host_percent(self):
+        """When only host-shape packets arrive, soc_percent mirrors host_percent."""
+        b = make_bridge()
+        kv = {
+            "host_packet_data_jdb": {
+                "host_packet_voltage": 53.1,
+                "host_packet_electric_percentage": 98,
+            },
+            # No battery_percentage at top level -> soc_percent would stay None.
+        }
+        b.publish_state("DEV1", kv)
+        cache = b._state_cache["DEV1"]
+        self.assertEqual(cache.get("host_percent"), 98)
+        self.assertEqual(cache.get("soc_percent"), 98,
+                         "soc_percent must mirror host_percent when not independently set")
+
+    def test_explicit_soc_not_overwritten_by_host(self):
+        """When the overall-shape packet provides soc_percent, don't clobber it with host."""
+        b = make_bridge()
+        # First packet: overall shape sets soc_percent (device with expansion
+        # pack reports distinct overall SOC).
+        kv_overall = {"battery_percentage": 85}  # no host_packet_data_jdb
+        b.publish_state("DEV1", kv_overall)
+        self.assertEqual(b._state_cache["DEV1"].get("soc_percent"), 85)
+
+        # Second packet: host shape with different host_percent. soc_percent
+        # is already populated, so fallback must not rewrite it to host_percent.
+        kv_host = {
+            "host_packet_data_jdb": {
+                "host_packet_voltage": 53.1,
+                "host_packet_electric_percentage": 90,
+            }
+        }
+        b.publish_state("DEV1", kv_host)
+        cache = b._state_cache["DEV1"]
+        self.assertEqual(cache.get("host_percent"), 90)
+        self.assertEqual(cache.get("soc_percent"), 85,
+                         "explicit soc_percent must not be clobbered by host fallback")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

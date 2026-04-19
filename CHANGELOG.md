@@ -4,6 +4,13 @@ All notable changes to pecron-monitor are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.7.5] - 2026-04-19
+
+### Fixed
+- **Ghost per-pack expansion sensors on standalone PPS**. Devices with no expansion packs attached (e.g. standalone E1500LFP, E3800LFP) published `pack_0..3_battery/voltage/current/temp/status` to HA with values of 0, creating 20 ghost sensor entities per device page that could never show real data. `publish_state` now detects `charging_pack_status == 4` ("No Connection") per slot and omits that slot's fields from the cached state JSON, so HA shows Unknown for the disconnected slots and next state publish strips any stale retained values.
+- **Ghost per-port DC-input sensors on devices without solar or with idle ports**. The DC5521 barrel jack, GX16-MF1, and GX16-MF2 inputs each expose three sensors (voltage, current, power). Ports reporting 0 across all three are suppressed in the cache, same Unknown-instead-of-0 effect.
+- **Battery (SOC) showing Unknown on standalone PPS that only emit host-shape packets** (notably E1500LFP). `soc_percent` now falls back to `host_percent` whenever it isn't independently populated. Devices with expansion packs still get their distinct overall-SOC value from whichever packet shape carries it; the fallback only kicks in when no overall-SOC ever arrives.
+
 ## [0.7.4] - 2026-04-19
 
 ### Fixed

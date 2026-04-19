@@ -1161,17 +1161,40 @@ class HomeAssistantBridge:
                 pass
 
         # ---- Per-port DC input sensors (solar + barrel) ----
-        for field, rounding in [
-            ("dc5521_input_voltage", 1), ("dc5521_input_current", 2), ("dc5521_input_power", 0),
-            ("gx16mf1_input_voltage", 1), ("gx16mf1_input_current", 2), ("gx16mf1_input_power", 0),
-            ("gx16mf2_input_voltage", 1), ("gx16mf2_input_current", 2), ("gx16mf2_input_power", 0),
-        ]:
-            present, v = _get_first_present(SENSOR_FIELDS[field])
-            if present:
+        # Grouped by port prefix so we can suppress entire ports that are idle:
+        # a port with voltage=0 and current=0 is either unconnected or
+        # not present on this device model. Publishing 0/0/0 creates ghost
+        # diagnostic entities in HA that never show real data. Keep the port
+        # if ANY of the three readings is nonzero (covers the sense-only case
+        # where voltage reads but the panel isn't pulling current yet).
+        for port in ("dc5521", "gx16mf1", "gx16mf2"):
+            v_key = f"{port}_input_voltage"
+            i_key = f"{port}_input_current"
+            p_key = f"{port}_input_power"
+            _, vv = _get_first_present(SENSOR_FIELDS[v_key])
+            _, iv = _get_first_present(SENSOR_FIELDS[i_key])
+            _, pv = _get_first_present(SENSOR_FIELDS[p_key])
+
+            def _num(x):
                 try:
-                    cache[field] = round(float(v), rounding) if rounding else int(float(v))
+                    return float(x)
                 except (TypeError, ValueError):
-                    pass
+                    return 0.0
+
+            if _num(vv) == 0 and _num(iv) == 0 and _num(pv) == 0:
+                # Idle port. Drop any previously cached values so the next
+                # published state JSON omits them and HA shows Unknown.
+                cache.pop(v_key, None)
+                cache.pop(i_key, None)
+                cache.pop(p_key, None)
+                continue
+
+            if vv is not None:
+                cache[v_key] = round(_num(vv), 1)
+            if iv is not None:
+                cache[i_key] = round(_num(iv), 2)
+            if pv is not None:
+                cache[p_key] = int(_num(pv))
 
         # ---- AC output actual readings ----
         present, v = _get_first_present(SENSOR_FIELDS["ac_output_hz"])
@@ -1189,6 +1212,12 @@ class HomeAssistantBridge:
                 pass
 
         # ---- Per-pack sensors (charging_pack_data_jdb) ----
+        # Pack status enum: 0=no charge, 1=cascade charging, 2=balance no charge,
+        # 3=balanced charging, 4=no connection. Slots reporting "no connection"
+        # are unoccupied expansion-pack bays on standalone PPS. Publishing their
+        # zeroed battery/voltage/current/temp values pollutes HA with ghost
+        # entities that can never have real data; skip them so the state JSON
+        # omits those keys and HA's template returns None (Unknown).
         packs = kv.get("charging_pack_data_jdb", [])
         if isinstance(packs, list):
             for i, pack in enumerate(packs[:4]):
@@ -1198,6 +1227,18 @@ class HomeAssistantBridge:
                     status_val = int(float(pack.get("charging_pack_status", 4)))
                 except (TypeError, ValueError):
                     status_val = 4
+
+                if status_val == 4:
+                    # Unoccupied slot; emit nothing for this pack. Any previously
+                    # cached fields stay on the broker as retained until the next
+                    # state publish replaces them with a JSON that lacks the keys.
+                    cache.pop(f"pack_{i}_status", None)
+                    cache.pop(f"pack_{i}_battery", None)
+                    cache.pop(f"pack_{i}_voltage", None)
+                    cache.pop(f"pack_{i}_current", None)
+                    cache.pop(f"pack_{i}_temp", None)
+                    continue
+
                 cache[f"pack_{i}_status"] = PACK_STATUS_LABELS.get(status_val, str(status_val))
 
                 try:
@@ -1245,6 +1286,16 @@ class HomeAssistantBridge:
                     cache["soc_percent"] = int(float(v))
                 except (TypeError, ValueError):
                     pass
+
+        # SOC fallback: on standalone PPS that only emit host-shape packets
+        # (e.g. E1500LFP) the "overall" SOC number never lands in cache, so
+        # HA's Battery (SOC) entity shows Unknown forever. When there are no
+        # expansion packs attached, overall SOC == host SOC by definition,
+        # so mirror host_percent into soc_percent whenever soc_percent isn't
+        # already populated. Devices with expansion packs still get their
+        # real soc_percent from whichever packet shape carries it.
+        if cache.get("soc_percent") is None and cache.get("host_percent") is not None:
+            cache["soc_percent"] = cache["host_percent"]
 
         # Ensure keys exist for HA templates (but don't force unknown -> 0)
         cache.setdefault("host_percent", None)
