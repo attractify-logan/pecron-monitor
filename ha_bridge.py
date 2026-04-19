@@ -362,39 +362,41 @@ class HomeAssistantBridge:
                 "unique_id": f"pecron_{dk}_remaining_time",
             })
 
-            # AC switch
+            # AC / DC / UPS output switches. Each has both a command_topic
+            # (HA pushes ON/OFF when the user toggles) AND a state_topic with
+            # value_template (HA reflects the actual device state from the
+            # published state JSON). Not optimistic: the device reports real
+            # switch state so HA should show reality, not the last command.
             self._pub_config("switch", dk, "ac", {
                 "name": "AC Output",
                 "icon": "mdi:power-plug",
                 "command_topic": f"pecron/{dk}/ac/set",
-                "optimistic": True,
-                "assumed_state": True,
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": "{{ value_json.ac_switch }}",
                 "payload_on": "ON", "payload_off": "OFF",
                 "state_on": "ON", "state_off": "OFF",
                 "device": dev_info,
                 "unique_id": f"pecron_{dk}_ac",
             })
 
-            # DC switch
             self._pub_config("switch", dk, "dc", {
                 "name": "DC Output",
                 "icon": "mdi:usb-port",
                 "command_topic": f"pecron/{dk}/dc/set",
-                "optimistic": True,
-                "assumed_state": True,
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": "{{ value_json.dc_switch }}",
                 "payload_on": "ON", "payload_off": "OFF",
                 "state_on": "ON", "state_off": "OFF",
                 "device": dev_info,
                 "unique_id": f"pecron_{dk}_dc",
             })
 
-            # UPS switch
             self._pub_config("switch", dk, "ups", {
                 "name": "UPS Mode",
                 "icon": "mdi:shield-battery",
                 "command_topic": f"pecron/{dk}/ups/set",
-                "optimistic": True,
-                "assumed_state": True,
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": "{{ value_json.ups_mode }}",
                 "payload_on": "ON", "payload_off": "OFF",
                 "state_on": "ON", "state_off": "OFF",
                 "device": dev_info,
