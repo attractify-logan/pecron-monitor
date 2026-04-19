@@ -117,6 +117,54 @@ class TestPortSuppression(unittest.TestCase):
             "dc_data_input_hm": port_values,
         }
 
+    def test_port_discovery_deferred_until_first_observation(self):
+        """Models without per-port breakdown (E1500LFP) never report any
+        per-port field, so their discovery topics are never published and
+        HA doesn't accumulate ghost Unknown entities."""
+        b = make_bridge()
+        b._device_dev_info["DEV1"] = {"identifiers": ["pecron_DEV1"]}
+        kv_no_ports = {
+            "host_packet_data_jdb": {
+                "host_packet_voltage": 53.1,
+                "host_packet_electric_percentage": 97,
+            },
+            # No dc_data_input_hm: device doesn't emit per-port data.
+        }
+        b.publish_state("DEV1", kv_no_ports)
+        self.assertEqual(b._deferred_ports_published, set(),
+                         "no discovery should fire when the device reports no port data")
+        # Confirm no per-port config topic was published either.
+        published_ports = [call for call in b.client.publish.call_args_list
+                           if "dc5521" in call.args[0] or "gx16mf" in call.args[0]]
+        self.assertEqual(published_ports, [],
+                         "no discovery config topics for per-port entities expected")
+
+    def test_port_discovery_fires_on_first_observation(self):
+        """A solar-capable device reporting gx16mf2 data publishes discovery
+        for those 3 entities on the first packet. Idempotent on subsequent
+        packets."""
+        b = make_bridge()
+        b._device_dev_info["DEV1"] = {"identifiers": ["pecron_DEV1"]}
+        kv = self._kv(
+            gx16mf2_input_voltage=44.0, gx16mf2_input_current=0.9, gx16mf2_input_power=39,
+        )
+        b.publish_state("DEV1", kv)
+        self.assertIn(("DEV1", "gx16mf2"), b._deferred_ports_published)
+
+        # 3 discovery topics published for gx16mf2.
+        gx_topics = [c.args[0] for c in b.client.publish.call_args_list
+                     if "gx16mf2" in c.args[0] and c.args[0].endswith("/config")]
+        self.assertEqual(len(gx_topics), 3)
+
+        # Second packet with the same port data: no additional discovery
+        # publishes.
+        pre = len(gx_topics)
+        b.publish_state("DEV1", kv)
+        gx_topics_after = [c.args[0] for c in b.client.publish.call_args_list
+                           if "gx16mf2" in c.args[0] and c.args[0].endswith("/config")]
+        self.assertEqual(len(gx_topics_after), pre,
+                         "discovery must be idempotent; no re-publish on second observation")
+
     def test_idle_port_shows_honest_zeros(self):
         """For idle ports, 0V / 0A / 0W is the real reading (empty-port
         measurement). Publish the zeros; don't suppress them. Unknown on an

@@ -106,6 +106,16 @@ class HomeAssistantBridge:
         self._last_retry_at = 0.0
         self._retry_interval = ha_config.get("retry_interval", 60)
 
+        # Deferred-discovery bookkeeping. Per-port DC-input entities
+        # (dc5521, gx16mf1, gx16mf2) are only published the first time the
+        # device reports any data for that port, so devices without the
+        # hardware don't accumulate ghost Unknown entities in HA.
+        # device_key -> dev_info dict (captured during _publish_discovery).
+        self._device_dev_info: dict = {}
+        # (device_key, port_name) set: ports we've already published discovery
+        # for since this bridge connected.
+        self._deferred_ports_published: set = set()
+
         # Cache last-known-good values per device so partial payloads don't zero-out entities
         self._state_cache = {}  # device_key -> dict of last published fields
         # Cache last-known values per device so partial payloads (host-only vs SOC-only)
@@ -538,99 +548,16 @@ class HomeAssistantBridge:
                     "unique_id": f"pecron_{dk}_dc_output",
                 })
 
+            # Per-port DC input sensors (DC5521 barrel, GX16-MF1/2 solar).
+            # NOT published here. Deferred to publish_state so we only register
+            # entities for ports that actually exist on the device. Models
+            # without per-port breakdown (E1500LFP) used to get 9 ghost
+            # entities all stuck at Unknown forever. Now discovery for a port
+            # fires the first time the device reports any value for that port.
+            # Dev info and is_pps are captured so _ensure_port_discovery can
+            # reconstruct the discovery payload later without re-deriving them.
             if is_pps:
-                # DC5521 (barrel) input sensors
-                self._pub_config("sensor", dk, "dc5521_input_voltage", {
-                    "name": "DC5521 Input Voltage",
-                    "device_class": "voltage",
-                    "unit_of_measurement": "V",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.dc5521_input_voltage }}",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_dc5521_input_voltage",
-                })
-
-                self._pub_config("sensor", dk, "dc5521_input_current", {
-                    "name": "DC5521 Input Current",
-                    "device_class": "current",
-                    "unit_of_measurement": "A",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.dc5521_input_current }}",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_dc5521_input_current",
-                })
-
-                self._pub_config("sensor", dk, "dc5521_input_power", {
-                    "name": "DC5521 Input Power",
-                    "device_class": "power",
-                    "unit_of_measurement": "W",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.dc5521_input_power }}",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_dc5521_input_power",
-                })
-
-                # Solar Port 1 (GX16-MF1) input sensors
-                self._pub_config("sensor", dk, "gx16mf1_input_voltage", {
-                    "name": "Solar Port 1 Voltage",
-                    "device_class": "voltage",
-                    "unit_of_measurement": "V",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.gx16mf1_input_voltage }}",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_gx16mf1_input_voltage",
-                })
-
-                self._pub_config("sensor", dk, "gx16mf1_input_current", {
-                    "name": "Solar Port 1 Current",
-                    "device_class": "current",
-                    "unit_of_measurement": "A",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.gx16mf1_input_current }}",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_gx16mf1_input_current",
-                })
-
-                self._pub_config("sensor", dk, "gx16mf1_input_power", {
-                    "name": "Solar Port 1 Power",
-                    "device_class": "power",
-                    "unit_of_measurement": "W",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.gx16mf1_input_power }}",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_gx16mf1_input_power",
-                })
-
-                # Solar Port 2 (GX16-MF2) input sensors
-                self._pub_config("sensor", dk, "gx16mf2_input_voltage", {
-                    "name": "Solar Port 2 Voltage",
-                    "device_class": "voltage",
-                    "unit_of_measurement": "V",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.gx16mf2_input_voltage }}",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_gx16mf2_input_voltage",
-                })
-
-                self._pub_config("sensor", dk, "gx16mf2_input_current", {
-                    "name": "Solar Port 2 Current",
-                    "device_class": "current",
-                    "unit_of_measurement": "A",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.gx16mf2_input_current }}",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_gx16mf2_input_current",
-                })
-
-                self._pub_config("sensor", dk, "gx16mf2_input_power", {
-                    "name": "Solar Port 2 Power",
-                    "device_class": "power",
-                    "unit_of_measurement": "W",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.gx16mf2_input_power }}",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_gx16mf2_input_power",
-                })
+                self._device_dev_info[dk] = dev_info
 
             # Remaining charging time
             self._pub_config("sensor", dk, "remaining_charging_time", {
@@ -891,6 +818,44 @@ class HomeAssistantBridge:
                 " or ".join(resource_codes),
             )
         return has
+
+    # Port names -> HA-friendly display prefix for the three port entities.
+    _PORT_LABELS = {
+        "dc5521": "DC5521",
+        "gx16mf1": "Solar Port 1",
+        "gx16mf2": "Solar Port 2",
+    }
+
+    def _ensure_port_discovery(self, dk: str, port: str):
+        """Publish discovery for a per-port DC-input port on first observation.
+        No-op if already published for this (device, port) pair since the bridge
+        last connected. Solves the ghost-entity problem where models without
+        per-port breakdown would still get discovery for DC5521 + GX16 ports."""
+        if (dk, port) in self._deferred_ports_published:
+            return
+        dev_info = self._device_dev_info.get(dk)
+        if dev_info is None:
+            # Called before _publish_discovery captured dev_info; skip and retry next call.
+            return
+
+        label = self._PORT_LABELS.get(port, port.upper())
+        for suffix, dev_class, unit in [
+            ("voltage", "voltage", "V"),
+            ("current", "current", "A"),
+            ("power",   "power",   "W"),
+        ]:
+            key = f"{port}_input_{suffix}"
+            self._pub_config("sensor", dk, key, {
+                "name": f"{label} {suffix.capitalize()}",
+                "device_class": dev_class,
+                "unit_of_measurement": unit,
+                "state_topic": f"pecron/{dk}/state",
+                "value_template": f"{{{{ value_json.{key} }}}}",
+                "device": dev_info,
+                "unique_id": f"pecron_{dk}_{key}",
+            })
+        self._deferred_ports_published.add((dk, port))
+        log.info("Registered HA discovery for %s port on %s (first observation)", label, dk)
 
     def _pub_config(self, component: str, dk: str, key: str, config: dict):
         # Issue #34: collapse non-essential entities under HA's Configuration /
@@ -1165,17 +1130,25 @@ class HomeAssistantBridge:
         # those zeros through. That's distinct from the pack case above where
         # disconnected slots bleed misleading host-pack data into slot 0.
         # A real zero is honest; a null/Unknown there would be worse UX.
-        for field, rounding in [
-            ("dc5521_input_voltage", 1), ("dc5521_input_current", 2), ("dc5521_input_power", 0),
-            ("gx16mf1_input_voltage", 1), ("gx16mf1_input_current", 2), ("gx16mf1_input_power", 0),
-            ("gx16mf2_input_voltage", 1), ("gx16mf2_input_current", 2), ("gx16mf2_input_power", 0),
-        ]:
-            present, v = _get_first_present(SENSOR_FIELDS[field])
-            if present:
-                try:
-                    cache[field] = round(float(v), rounding) if rounding else int(float(v))
-                except (TypeError, ValueError):
-                    pass
+        #
+        # Discovery for each port is deferred (see _ensure_port_discovery):
+        # a port's three HA entities are only registered the first time the
+        # device reports any data for that port. Models without the hardware
+        # (E1500LFP) never trigger discovery and therefore don't accumulate
+        # ghost Unknown entities.
+        for port in ("dc5521", "gx16mf1", "gx16mf2"):
+            port_reported = False
+            for field_suffix, rounding in [("voltage", 1), ("current", 2), ("power", 0)]:
+                field = f"{port}_input_{field_suffix}"
+                present, v = _get_first_present(SENSOR_FIELDS[field])
+                if present:
+                    port_reported = True
+                    try:
+                        cache[field] = round(float(v), rounding) if rounding else int(float(v))
+                    except (TypeError, ValueError):
+                        pass
+            if port_reported:
+                self._ensure_port_discovery(device_key, port)
 
         # ---- AC output actual readings ----
         present, v = _get_first_present(SENSOR_FIELDS["ac_output_hz"])
