@@ -270,8 +270,10 @@ class HomeAssistantBridge:
                 "unique_id": f"pecron_{dk}_temperature",
             })
 
-            # E3800-specific temperature sensors (3 separate sensors)
-            if is_pps:
+            # E3800-specific temperature sensors. Gated on TSL presence so
+            # models that don't expose these properties (E1500, etc.) don't
+            # show permanent 'Unknown' entities in HA (issue #35).
+            if is_pps and self._has(device, "battery_temp"):
                 self._pub_config("sensor", dk, "battery_temp", {
                     "name": "Battery Temperature",
                     "device_class": "temperature",
@@ -282,6 +284,7 @@ class HomeAssistantBridge:
                     "unique_id": f"pecron_{dk}_battery_temp",
                 })
 
+            if is_pps and self._has(device, "charging_plate_temp"):
                 self._pub_config("sensor", dk, "charging_plate_temp", {
                     "name": "Charging Plate Temperature",
                     "device_class": "temperature",
@@ -292,6 +295,7 @@ class HomeAssistantBridge:
                     "unique_id": f"pecron_{dk}_charging_plate_temp",
                 })
 
+            if is_pps and self._has(device, "inverter_temp"):
                 self._pub_config("sensor", dk, "inverter_temp", {
                     "name": "Inverter Temperature",
                     "device_class": "temperature",
@@ -392,64 +396,71 @@ class HomeAssistantBridge:
             # (HA will just show "unavailable" if the device doesn't report them)
 
             if is_pps:
-                # Eco/Quiet mode switch
-                self._pub_config("switch", dk, "eco_mode", {
-                    "name": "Eco Mode",
-                    "icon": "mdi:leaf",
-                    "command_topic": f"pecron/{dk}/eco_mode/set",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.eco_quite_mode_as }}",
-                    "state_on": "ON", "state_off": "OFF",
-                    "payload_on": "ON", "payload_off": "OFF",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_eco_mode",
-                })
+                # Eco/Quiet mode switch (E3800 TSL has eco_quite_mode_as; E1500 does not)
+                if self._has(device, "eco_quite_mode_as"):
+                    self._pub_config("switch", dk, "eco_mode", {
+                        "name": "Eco Mode",
+                        "icon": "mdi:leaf",
+                        "command_topic": f"pecron/{dk}/eco_mode/set",
+                        "state_topic": f"pecron/{dk}/state",
+                        "value_template": "{{ value_json.eco_quite_mode_as }}",
+                        "state_on": "ON", "state_off": "OFF",
+                        "payload_on": "ON", "payload_off": "OFF",
+                        "device": dev_info,
+                        "unique_id": f"pecron_{dk}_eco_mode",
+                    })
 
-                # Touch panel lock
-                self._pub_config("switch", dk, "touch_lock", {
-                    "name": "Touch Panel Lock",
-                    "icon": "mdi:lock",
-                    "command_topic": f"pecron/{dk}/touch_lock/set",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.device_touch_locking_as }}",
-                    "state_on": "ON", "state_off": "OFF",
-                    "payload_on": "ON", "payload_off": "OFF",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_touch_lock",
-                })
+                # Touch panel lock (E3800-only)
+                if self._has(device, "device_touch_locking_as"):
+                    self._pub_config("switch", dk, "touch_lock", {
+                        "name": "Touch Panel Lock",
+                        "icon": "mdi:lock",
+                        "command_topic": f"pecron/{dk}/touch_lock/set",
+                        "state_topic": f"pecron/{dk}/state",
+                        "value_template": "{{ value_json.device_touch_locking_as }}",
+                        "state_on": "ON", "state_off": "OFF",
+                        "payload_on": "ON", "payload_off": "OFF",
+                        "device": dev_info,
+                        "unique_id": f"pecron_{dk}_touch_lock",
+                    })
 
-                # AC charging power level
-                self._pub_config("sensor", dk, "ac_charging_power", {
-                    "name": "AC Charging Power Setting",
-                    "icon": "mdi:flash",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.ac_charging_power_ios }}",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_ac_charging_power",
-                })
+                # AC charging power level (E3800-only)
+                if self._has(device, "ac_charging_power_ios"):
+                    self._pub_config("sensor", dk, "ac_charging_power", {
+                        "name": "AC Charging Power Setting",
+                        "icon": "mdi:flash",
+                        "state_topic": f"pecron/{dk}/state",
+                        "value_template": "{{ value_json.ac_charging_power_ios }}",
+                        "device": dev_info,
+                        "unique_id": f"pecron_{dk}_ac_charging_power",
+                    })
 
-                # UPS charge threshold
-                self._pub_config("sensor", dk, "ups_charge_threshold", {
-                    "name": "UPS Charge Threshold",
-                    "icon": "mdi:battery-charging",
-                    "unit_of_measurement": "%",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.ups_start_charge_value_as }}",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_ups_charge_threshold",
-                })
+                # UPS charge threshold (E3800-only)
+                if self._has(device, "ups_start_charge_value_as"):
+                    self._pub_config("sensor", dk, "ups_charge_threshold", {
+                        "name": "UPS Charge Threshold",
+                        "icon": "mdi:battery-charging",
+                        "unit_of_measurement": "%",
+                        "state_topic": f"pecron/{dk}/state",
+                        "value_template": "{{ value_json.ups_start_charge_value_as }}",
+                        "device": dev_info,
+                        "unique_id": f"pecron_{dk}_ups_charge_threshold",
+                    })
 
-                # Standby timeout
-                self._pub_config("sensor", dk, "standby_timeout", {
-                    "name": "Standby Timeout",
-                    "icon": "mdi:timer-sand",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.device_standy_times_as }}",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_standby_timeout",
-                })
+                # Standby timeout (WB12200 + E3800 TSL have device_standy_times_as; E1500 does not)
+                if self._has(device, "device_standy_times_as"):
+                    self._pub_config("sensor", dk, "standby_timeout", {
+                        "name": "Standby Timeout",
+                        "icon": "mdi:timer-sand",
+                        "state_topic": f"pecron/{dk}/state",
+                        "value_template": "{{ value_json.device_standy_times_as }}",
+                        "device": dev_info,
+                        "unique_id": f"pecron_{dk}_standby_timeout",
+                    })
 
-                # Bypass mode
+                # Bypass mode (bypass_enable isn't a standard TSL code on any model
+                # I've seen; leaving ungated for now, will gate if someone identifies
+                # the underlying TSL resource)
                 self._pub_config("switch", dk, "bypass", {
                     "name": "Bypass Mode",
                     "icon": "mdi:transfer",
@@ -631,17 +642,20 @@ class HomeAssistantBridge:
                 "unique_id": f"pecron_{dk}_remaining_charging_time",
             })
 
-            # Total energy (cumulative PV generation)
-            self._pub_config("sensor", dk, "total_energy", {
-                "name": "Total PV Energy",
-                "device_class": "energy",
-                "state_class": "total_increasing",
-                "unit_of_measurement": "kWh",
-                "state_topic": f"pecron/{dk}/state",
-                "value_template": "{{ value_json.total_energy }}",
-                "device": dev_info,
-                "unique_id": f"pecron_{dk}_total_energy",
-            })
+            # Total energy (cumulative PV generation). Only on models with
+            # PV input reporting (E3800, F-series). E1500 and WB12200 do
+            # not expose total_energy in their TSL (issue #35).
+            if self._has(device, "total_energy"):
+                self._pub_config("sensor", dk, "total_energy", {
+                    "name": "Total PV Energy",
+                    "device_class": "energy",
+                    "state_class": "total_increasing",
+                    "unit_of_measurement": "kWh",
+                    "state_topic": f"pecron/{dk}/state",
+                    "value_template": "{{ value_json.total_energy }}",
+                    "device": dev_info,
+                    "unique_id": f"pecron_{dk}_total_energy",
+                })
 
             # Device status
             self._pub_config("sensor", dk, "device_status", {
@@ -853,6 +867,16 @@ class HomeAssistantBridge:
             self._clear_stale_entities(dk)
 
         log.info("Published Home Assistant discovery configs")
+
+    @staticmethod
+    def _has(device: dict, *resource_codes: str) -> bool:
+        """Return True if the device's TSL cache includes at least one of the
+        named resource codes. Used to gate HA discovery publication so models
+        that lack a TSL property don't end up with perpetual 'Unknown' entities
+        (issue #35). Pass multiple codes when a single entity maps to whichever
+        one the firmware exposes (e.g. 'battery_percentage' vs 'battery')."""
+        controls = device.get("controls", {}) or {}
+        return any(code in controls for code in resource_codes)
 
     def _pub_config(self, component: str, dk: str, key: str, config: dict):
         # Issue #34: collapse non-essential entities under HA's Configuration /
