@@ -1182,11 +1182,13 @@ class HomeAssistantBridge:
                     return 0.0
 
             if _num(vv) == 0 and _num(iv) == 0 and _num(pv) == 0:
-                # Idle port. Drop any previously cached values so the next
-                # published state JSON omits them and HA shows Unknown.
-                cache.pop(v_key, None)
-                cache.pop(i_key, None)
-                cache.pop(p_key, None)
+                # Idle port. Publish explicit JSON null for each field so HA's
+                # value_template returns None and the entity transitions to
+                # Unknown. Omitting the key instead would leave HA holding the
+                # last-known value because Jinja Undefined -> no state change.
+                cache[v_key] = None
+                cache[i_key] = None
+                cache[p_key] = None
                 continue
 
             if vv is not None:
@@ -1229,14 +1231,13 @@ class HomeAssistantBridge:
                     status_val = 4
 
                 if status_val == 4:
-                    # Unoccupied slot; emit nothing for this pack. Any previously
-                    # cached fields stay on the broker as retained until the next
-                    # state publish replaces them with a JSON that lacks the keys.
-                    cache.pop(f"pack_{i}_status", None)
-                    cache.pop(f"pack_{i}_battery", None)
-                    cache.pop(f"pack_{i}_voltage", None)
-                    cache.pop(f"pack_{i}_current", None)
-                    cache.pop(f"pack_{i}_temp", None)
+                    # Unoccupied slot. Publish explicit JSON null rather than
+                    # omitting the keys: HA's value_template returns Undefined
+                    # for missing keys and keeps the last known state, which
+                    # leaves stale values visible after a reload. null /
+                    # Jinja None transitions the entity cleanly to Unknown.
+                    for suffix in ("status", "battery", "voltage", "current", "temp"):
+                        cache[f"pack_{i}_{suffix}"] = None
                     continue
 
                 cache[f"pack_{i}_status"] = PACK_STATUS_LABELS.get(status_val, str(status_val))

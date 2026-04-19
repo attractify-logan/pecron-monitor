@@ -50,8 +50,10 @@ class TestPackSuppression(unittest.TestCase):
             "charging_pack_temp": temp,
         }
 
-    def test_disconnected_pack_produces_no_cache_keys(self):
-        """Status 4 = No Connection. All pack_1_* keys absent from cache."""
+    def test_disconnected_pack_produces_null_cache_keys(self):
+        """Status 4 = No Connection. All pack_1_* keys present but None so HA
+        sees JSON null and transitions to Unknown (omitting the keys would
+        leave HA holding last-known value)."""
         b = make_bridge()
         kv = {
             "host_packet_data_jdb": {
@@ -67,18 +69,21 @@ class TestPackSuppression(unittest.TestCase):
         }
         b.publish_state("DEV1", kv)
         cache = b._state_cache["DEV1"]
-        # Connected slot (0): all five keys present
+        # Connected slot (0): all five keys present with real values
         for k in ["pack_0_status", "pack_0_battery", "pack_0_voltage",
                   "pack_0_current", "pack_0_temp"]:
             self.assertIn(k, cache, f"connected pack must populate {k}")
-        # Disconnected slots: NO keys present
+            self.assertIsNotNone(cache[k], f"connected pack {k} must have a value")
+        # Disconnected slots: keys present but None
         for i in [1, 2, 3]:
             for suffix in ["status", "battery", "voltage", "current", "temp"]:
-                self.assertNotIn(f"pack_{i}_{suffix}", cache,
-                                 f"disconnected pack_{i} must not populate pack_{i}_{suffix}")
+                key = f"pack_{i}_{suffix}"
+                self.assertIn(key, cache, f"disconnected pack_{i} must publish {key} (as null)")
+                self.assertIsNone(cache[key], f"disconnected pack_{i} {key} must be None, got {cache[key]!r}")
 
-    def test_previously_cached_pack_cleared_when_disconnected(self):
-        """If a pack WAS connected and is now status=4, clear stale cache entries."""
+    def test_previously_cached_pack_nulled_when_disconnected(self):
+        """If a pack WAS connected and is now status=4, overwrite stale values
+        with None so HA's state JSON carries explicit nulls."""
         b = make_bridge()
         # Seed cache with a previously connected pack 1
         b._state_cache["DEV1"] = {
@@ -93,8 +98,9 @@ class TestPackSuppression(unittest.TestCase):
         b.publish_state("DEV1", kv)
         cache = b._state_cache["DEV1"]
         for suffix in ["status", "battery", "voltage", "current", "temp"]:
-            self.assertNotIn(f"pack_1_{suffix}", cache,
-                             f"stale pack_1_{suffix} must be cleared after disconnect")
+            key = f"pack_1_{suffix}"
+            self.assertIsNone(cache[key],
+                              f"stale pack_1_{suffix} must be set to None after disconnect, got {cache[key]!r}")
 
 
 # -------------------- Idle port suppression --------------------
@@ -111,8 +117,9 @@ class TestPortSuppression(unittest.TestCase):
             "dc_data_input_hm": port_values,
         }
 
-    def test_idle_port_produces_no_cache_keys(self):
-        """All three readings at 0 on a port -> no cache entries for that port."""
+    def test_idle_port_produces_null_cache_keys(self):
+        """All three readings at 0 on a port -> cache entries set to None so
+        HA publishes JSON null and transitions entities to Unknown."""
         b = make_bridge()
         kv = self._kv(
             dc5521_input_voltage=0, dc5521_input_current=0, dc5521_input_power=0,
@@ -123,12 +130,15 @@ class TestPortSuppression(unittest.TestCase):
         cache = b._state_cache["DEV1"]
         for port in ["dc5521", "gx16mf1"]:
             for suffix in ["voltage", "current", "power"]:
-                self.assertNotIn(f"{port}_input_{suffix}", cache,
-                                 f"idle port {port} must not populate {port}_input_{suffix}")
-        # Active port: all three present
+                key = f"{port}_input_{suffix}"
+                self.assertIn(key, cache, f"idle port {port} must still publish {key} (as null)")
+                self.assertIsNone(cache[key],
+                                  f"idle port {port} {key} must be None, got {cache[key]!r}")
+        # Active port: all three present with real values
         for suffix in ["voltage", "current", "power"]:
-            self.assertIn(f"gx16mf2_input_{suffix}", cache,
-                          f"active port gx16mf2 must still populate {suffix}")
+            key = f"gx16mf2_input_{suffix}"
+            self.assertIn(key, cache, f"active port gx16mf2 must still populate {suffix}")
+            self.assertIsNotNone(cache[key])
 
     def test_port_with_voltage_only_stays(self):
         """Sense-only case: panel wired but not pulling current yet. Keep the port."""
