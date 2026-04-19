@@ -874,9 +874,23 @@ class HomeAssistantBridge:
         named resource codes. Used to gate HA discovery publication so models
         that lack a TSL property don't end up with perpetual 'Unknown' entities
         (issue #35). Pass multiple codes when a single entity maps to whichever
-        one the firmware exposes (e.g. 'battery_percentage' vs 'battery')."""
+        one the firmware exposes (e.g. 'battery_percentage' vs 'battery').
+
+        Logs at DEBUG when gating skips a code so users who run with --verbose
+        can see why an entity they expected isn't appearing. The suggested
+        remediation is to re-run --setup which refreshes the TSL cache from
+        the Pecron cloud (new firmware sometimes adds resource codes).
+        """
         controls = device.get("controls", {}) or {}
-        return any(code in controls for code in resource_codes)
+        has = any(code in controls for code in resource_codes)
+        if not has:
+            log.debug(
+                "TSL gate: device %s lacks %s, skipping entity publish "
+                "(re-run --setup if this should be present)",
+                device.get("device_key", "?"),
+                " or ".join(resource_codes),
+            )
+        return has
 
     def _pub_config(self, component: str, dk: str, key: str, config: dict):
         # Issue #34: collapse non-essential entities under HA's Configuration /
