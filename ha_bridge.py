@@ -23,6 +23,73 @@ from constants import (SENSOR_FIELDS, DEVICE_STATUS_LABELS, FAULT_ALARM_LABELS,
 log = logging.getLogger("pecron")
 
 
+# Home Assistant device view categorization for MQTT discovery (issue #34).
+# Entities in this map get an `entity_category` hint on discovery so HA
+# groups them under collapsible Configuration / Diagnostic sections instead
+# of flooding the main device view. Keys omitted here default to the main
+# view. Pack-level sensors (pack_N_*) are routed to diagnostic via a prefix
+# rule in entity_category_for() below so we don't need 20 lines of per-pack
+# entries here.
+ENTITY_CATEGORIES = {
+    # Configuration: knobs set rarely, not part of the daily glance.
+    "ups": "config",
+    "eco_mode": "config",
+    "touch_lock": "config",
+    "bypass": "config",
+    "auto_dim": "config",
+    "beep": "config",
+    "ac_charging_power": "config",
+    "ups_charge_threshold": "config",
+    "standby_timeout": "config",
+    "screen_brightness": "config",
+    "ac_voltage_setting": "config",
+    "ac_frequency_setting": "config",
+    "ac_output_voltage": "config",
+    "ac_output_hz": "config",
+    "auto_off_timer": "config",
+    "charging_limit_voltage": "config",
+    "discharge_limit_voltage": "config",
+    "charging_current_limit": "config",
+    "discharge_current_limit": "config",
+    "battery_heating": "config",
+    # Diagnostic: detail, only looked at when debugging.
+    "host_battery": "diagnostic",
+    "battery_temp": "diagnostic",
+    "charging_plate_temp": "diagnostic",
+    "inverter_temp": "diagnostic",
+    "ac_input": "diagnostic",
+    "dc_input": "diagnostic",
+    "ac_output_pf": "diagnostic",
+    "dc5521_input_voltage": "diagnostic",
+    "dc5521_input_current": "diagnostic",
+    "dc5521_input_power": "diagnostic",
+    "gx16mf1_input_voltage": "diagnostic",
+    "gx16mf1_input_current": "diagnostic",
+    "gx16mf1_input_power": "diagnostic",
+    "gx16mf2_input_voltage": "diagnostic",
+    "gx16mf2_input_current": "diagnostic",
+    "gx16mf2_input_power": "diagnostic",
+    "remaining_charging_time": "diagnostic",  # duplicates remaining_time due to Pecron API bug (jsight issue #1)
+    "device_status": "diagnostic",
+    "expansion_pack": "diagnostic",
+    "fault_alarm": "diagnostic",
+}
+
+# Prefix match for per-pack sensors (pack_0_battery, pack_1_voltage, etc.)
+_DIAGNOSTIC_PREFIXES = ("pack_",)
+
+
+def entity_category_for(key: str):
+    """Return the HA entity_category ('config' / 'diagnostic') for an entity key,
+    or None if the entity should stay in the main device view."""
+    if key in ENTITY_CATEGORIES:
+        return ENTITY_CATEGORIES[key]
+    for prefix in _DIAGNOSTIC_PREFIXES:
+        if key.startswith(prefix):
+            return "diagnostic"
+    return None
+
+
 class HomeAssistantBridge:
     """Publishes Home Assistant MQTT auto-discovery config and state updates."""
 
@@ -788,6 +855,12 @@ class HomeAssistantBridge:
         log.info("Published Home Assistant discovery configs")
 
     def _pub_config(self, component: str, dk: str, key: str, config: dict):
+        # Issue #34: collapse non-essential entities under HA's Configuration /
+        # Diagnostic sections. Applied here so every call site benefits without
+        # 50 per-call-site edits.
+        category = entity_category_for(key)
+        if category and "entity_category" not in config:
+            config = {**config, "entity_category": category}
         topic = f"{self.discovery_prefix}/{component}/pecron_{dk}/{key}/config"
         self.client.publish(topic, json.dumps(config), qos=1, retain=True)
         self._published_topics.add(topic)

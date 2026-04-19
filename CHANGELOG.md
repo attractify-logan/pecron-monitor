@@ -4,6 +4,11 @@ All notable changes to pecron-monitor are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.7.3] - 2026-04-19
+
+### Changed
+- **Home Assistant device view now groups entities into Configuration / Diagnostic sections** (#34). Non-essential entities (UPS mode, screen brightness, per-pack voltages, battery temps, AC output voltage/frequency, etc.) get HA's standard `entity_category` hint in their MQTT discovery payload, so HA collapses them under labeled sections instead of flooding the main device view with 40+ entries. Everyday readings (battery %, voltage, temperature, total power in/out, AC/DC switches, remaining time) stay in the main view as before. No config changes needed. Pull, restart, HA reorganizes automatically.
+
 ## [0.7.2] - 2026-04-19
 
 Targeted E3600LFP follow-ups from #14, informed by detailed testing and debugging from @brucehoult and @derekclawson.
