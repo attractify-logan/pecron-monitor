@@ -117,9 +117,12 @@ class TestPortSuppression(unittest.TestCase):
             "dc_data_input_hm": port_values,
         }
 
-    def test_idle_port_produces_null_cache_keys(self):
-        """All three readings at 0 on a port -> cache entries set to None so
-        HA publishes JSON null and transitions entities to Unknown."""
+    def test_idle_port_shows_honest_zeros(self):
+        """For idle ports, 0V / 0A / 0W is the real reading (empty-port
+        measurement). Publish the zeros; don't suppress them. Unknown on an
+        empty port is worse UX than 0 because the device genuinely measures 0
+        there, unlike the pack case where disconnected slots bleed misleading
+        nonzero data."""
         b = make_bridge()
         kv = self._kv(
             dc5521_input_voltage=0, dc5521_input_current=0, dc5521_input_power=0,
@@ -128,30 +131,17 @@ class TestPortSuppression(unittest.TestCase):
         )
         b.publish_state("DEV1", kv)
         cache = b._state_cache["DEV1"]
+        # Idle ports: present with zero values (NOT None, NOT absent)
         for port in ["dc5521", "gx16mf1"]:
             for suffix in ["voltage", "current", "power"]:
                 key = f"{port}_input_{suffix}"
-                self.assertIn(key, cache, f"idle port {port} must still publish {key} (as null)")
-                self.assertIsNone(cache[key],
-                                  f"idle port {port} {key} must be None, got {cache[key]!r}")
-        # Active port: all three present with real values
-        for suffix in ["voltage", "current", "power"]:
-            key = f"gx16mf2_input_{suffix}"
-            self.assertIn(key, cache, f"active port gx16mf2 must still populate {suffix}")
-            self.assertIsNotNone(cache[key])
-
-    def test_port_with_voltage_only_stays(self):
-        """Sense-only case: panel wired but not pulling current yet. Keep the port."""
-        b = make_bridge()
-        kv = self._kv(
-            dc5521_input_voltage=19.0, dc5521_input_current=0.0, dc5521_input_power=0,
-            gx16mf1_input_voltage=0, gx16mf1_input_current=0, gx16mf1_input_power=0,
-            gx16mf2_input_voltage=0, gx16mf2_input_current=0, gx16mf2_input_power=0,
-        )
-        b.publish_state("DEV1", kv)
-        cache = b._state_cache["DEV1"]
-        self.assertIn("dc5521_input_voltage", cache,
-                      "sense-only port (V>0, I=0) must stay; it's wired up")
+                self.assertIn(key, cache)
+                self.assertEqual(cache[key], 0,
+                                 f"idle port {port} {key} must publish 0, got {cache[key]!r}")
+        # Active port: real values
+        self.assertEqual(cache["gx16mf2_input_voltage"], 18.2)
+        self.assertEqual(cache["gx16mf2_input_current"], 2.1)
+        self.assertEqual(cache["gx16mf2_input_power"], 38)
 
 
 # -------------------- SOC fallback --------------------

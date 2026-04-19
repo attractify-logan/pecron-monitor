@@ -1161,42 +1161,21 @@ class HomeAssistantBridge:
                 pass
 
         # ---- Per-port DC input sensors (solar + barrel) ----
-        # Grouped by port prefix so we can suppress entire ports that are idle:
-        # a port with voltage=0 and current=0 is either unconnected or
-        # not present on this device model. Publishing 0/0/0 creates ghost
-        # diagnostic entities in HA that never show real data. Keep the port
-        # if ANY of the three readings is nonzero (covers the sense-only case
-        # where voltage reads but the panel isn't pulling current yet).
-        for port in ("dc5521", "gx16mf1", "gx16mf2"):
-            v_key = f"{port}_input_voltage"
-            i_key = f"{port}_input_current"
-            p_key = f"{port}_input_power"
-            _, vv = _get_first_present(SENSOR_FIELDS[v_key])
-            _, iv = _get_first_present(SENSOR_FIELDS[i_key])
-            _, pv = _get_first_present(SENSOR_FIELDS[p_key])
-
-            def _num(x):
+        # For idle ports the device truthfully reports 0V / 0A / 0W; publish
+        # those zeros through. That's distinct from the pack case above where
+        # disconnected slots bleed misleading host-pack data into slot 0.
+        # A real zero is honest; a null/Unknown there would be worse UX.
+        for field, rounding in [
+            ("dc5521_input_voltage", 1), ("dc5521_input_current", 2), ("dc5521_input_power", 0),
+            ("gx16mf1_input_voltage", 1), ("gx16mf1_input_current", 2), ("gx16mf1_input_power", 0),
+            ("gx16mf2_input_voltage", 1), ("gx16mf2_input_current", 2), ("gx16mf2_input_power", 0),
+        ]:
+            present, v = _get_first_present(SENSOR_FIELDS[field])
+            if present:
                 try:
-                    return float(x)
+                    cache[field] = round(float(v), rounding) if rounding else int(float(v))
                 except (TypeError, ValueError):
-                    return 0.0
-
-            if _num(vv) == 0 and _num(iv) == 0 and _num(pv) == 0:
-                # Idle port. Publish explicit JSON null for each field so HA's
-                # value_template returns None and the entity transitions to
-                # Unknown. Omitting the key instead would leave HA holding the
-                # last-known value because Jinja Undefined -> no state change.
-                cache[v_key] = None
-                cache[i_key] = None
-                cache[p_key] = None
-                continue
-
-            if vv is not None:
-                cache[v_key] = round(_num(vv), 1)
-            if iv is not None:
-                cache[i_key] = round(_num(iv), 2)
-            if pv is not None:
-                cache[p_key] = int(_num(pv))
+                    pass
 
         # ---- AC output actual readings ----
         present, v = _get_first_present(SENSOR_FIELDS["ac_output_hz"])
