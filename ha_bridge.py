@@ -819,11 +819,14 @@ class HomeAssistantBridge:
             )
         return has
 
-    # Port names -> HA-friendly display prefix for the three port entities.
+    # Port names -> HA-friendly display prefix + per-suffix label style.
+    # Keys match the prefix pecron-monitor emits; values are (base_label,
+    # suffix_separator) where suffix_separator is " Input " for DC5521 and
+    # " " for solar ports, matching the naming that shipped pre-0.7.5.
     _PORT_LABELS = {
-        "dc5521": "DC5521",
-        "gx16mf1": "Solar Port 1",
-        "gx16mf2": "Solar Port 2",
+        "dc5521": ("DC5521", " Input "),
+        "gx16mf1": ("Solar Port 1", " "),
+        "gx16mf2": ("Solar Port 2", " "),
     }
 
     def _ensure_port_discovery(self, dk: str, port: str):
@@ -838,15 +841,15 @@ class HomeAssistantBridge:
             # Called before _publish_discovery captured dev_info; skip and retry next call.
             return
 
-        label = self._PORT_LABELS.get(port, port.upper())
-        for suffix, dev_class, unit in [
-            ("voltage", "voltage", "V"),
-            ("current", "current", "A"),
-            ("power",   "power",   "W"),
+        base_label, sep = self._PORT_LABELS.get(port, (port.upper(), " "))
+        for suffix, dev_class, unit, display_suffix in [
+            ("voltage", "voltage", "V", "Voltage"),
+            ("current", "current", "A", "Current"),
+            ("power",   "power",   "W", "Power"),
         ]:
             key = f"{port}_input_{suffix}"
             self._pub_config("sensor", dk, key, {
-                "name": f"{label} {suffix.capitalize()}",
+                "name": f"{base_label}{sep}{display_suffix}",
                 "device_class": dev_class,
                 "unit_of_measurement": unit,
                 "state_topic": f"pecron/{dk}/state",
@@ -855,7 +858,7 @@ class HomeAssistantBridge:
                 "unique_id": f"pecron_{dk}_{key}",
             })
         self._deferred_ports_published.add((dk, port))
-        log.info("Registered HA discovery for %s port on %s (first observation)", label, dk)
+        log.info("Registered HA discovery for '%s' port on %s (first observation)", base_label, dk)
 
     def _pub_config(self, component: str, dk: str, key: str, config: dict):
         # Issue #34: collapse non-essential entities under HA's Configuration /
@@ -1217,6 +1220,27 @@ class HomeAssistantBridge:
                     cache[f"pack_{i}_temp"] = int(float(pack.get("charging_pack_temp", 0)))
                 except (TypeError, ValueError):
                     pass
+
+        # Fallback aggregate: on some models (E3800LFP, E1500LFP) the top-level
+        # total_input_power / total_output_power fields are never populated in
+        # the MQTT packets, but the per-source ac_input_power / dc_input_power
+        # (and ac_output_power / dc_output_power) always are. Compute the total
+        # from components when the top-level total isn't in cache so HA's Input
+        # Power / Output Power entities don't sit at Unknown indefinitely.
+        # Parallels the same fallback already done in monitor._process_data for
+        # the status log. Runs AFTER all components are cached so it sees
+        # whatever landed in this or any earlier packet.
+        if cache.get("total_input_power") is None:
+            ac_in = cache.get("ac_input_power")
+            dc_in = cache.get("dc_input_power")
+            if ac_in is not None and dc_in is not None:
+                cache["total_input_power"] = int(ac_in + dc_in)
+
+        if cache.get("total_output_power") is None:
+            ac_out = cache.get("ac_output_power")
+            dc_out = cache.get("dc_output_power")
+            if ac_out is not None and dc_out is not None:
+                cache["total_output_power"] = int(ac_out + dc_out)
 
         # ---- SOC vs Host % ----
         # Your device alternates two payload shapes:
