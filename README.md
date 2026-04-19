@@ -263,6 +263,14 @@ Don't see yours? It probably still works — `--setup` checks all known product 
 - Password is AES-encrypted before transmission (same as official app)
 - Tokens expire every 2 hours and auto-refresh
 
+## Related Projects
+
+- [**jsight/unofficial-pecron-api**](https://github.com/jsight/unofficial-pecron-api) — a clean Python library for the Pecron cloud REST API, published to PyPI (`pip install unofficial-pecron-api`). If you only need cloud access from Python (no local TCP, BLE, MQTT streaming, or Home Assistant integration) and want a well-typed SDK with dataclass models and a focused CLI, it's a great choice. Separate reverse-engineering effort — credit for a few of the Pecron API quirks documented [here](docs/known-pecron-api-quirks.md) belongs to that project.
+
+## Known Pecron API Quirks
+
+Bugs and oddities in Pecron's cloud API / device firmware that affect integrations — see [docs/known-pecron-api-quirks.md](docs/known-pecron-api-quirks.md).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
