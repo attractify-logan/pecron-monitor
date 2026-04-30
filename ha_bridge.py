@@ -985,10 +985,20 @@ class HomeAssistantBridge:
             except (TypeError, ValueError):
                 pass
 
+        # Track whether the top-level total fields were present AND accepted
+        # in *this* packet (vs only carried over from the cache). The aggregate
+        # fallback at the end of publish_state needs this so it can preserve a
+        # canonical top-level reading received in this packet on standalone PPS
+        # devices, while still re-aggregating when the top-level was absent or
+        # was suppressed by the host-zero guard. See issue #48.
+        total_input_top_level_used = False
+        total_output_top_level_used = False
+
         present, v = _get_first_present(SENSOR_FIELDS["total_input_power"])
         if present and (not packet_has_host or float(v) != 0.0):
             try:
                 cache["total_input_power"] = int(float(v))
+                total_input_top_level_used = True
             except (TypeError, ValueError):
                 pass
 
@@ -996,6 +1006,7 @@ class HomeAssistantBridge:
         if present and (not packet_has_host or float(v) != 0.0):
             try:
                 cache["total_output_power"] = int(float(v))
+                total_output_top_level_used = True
             except (TypeError, ValueError):
                 pass
 
@@ -1232,17 +1243,39 @@ class HomeAssistantBridge:
         # Parallels the same fallback already done in monitor._process_data for
         # the status log. Runs AFTER all components are cached so it sees
         # whatever landed in this or any earlier packet.
-        if cache.get("total_input_power") is None:
-            ac_in = cache.get("ac_input_power")
-            dc_in = cache.get("dc_input_power")
-            if ac_in is not None and dc_in is not None:
-                cache["total_input_power"] = int(ac_in + dc_in)
+        #
+        # Issue #48: on standalone PPS (no occupied expansion packs) the same
+        # "fill once, never refresh" pattern that #43 hit for soc_percent also
+        # hits the totals. The host-zero guard above on total_input_power /
+        # total_output_power skips the 0 reading on host packets, so when AC
+        # is unplugged the cached value stays non-zero (e.g. 1329W) forever
+        # while ac_input_power and dc_input_power correctly read 0; the old
+        # `if total is None` fallback never re-runs because the cache is
+        # already populated. Detect standalone the same way #44 did (no
+        # pack_*_status set) and re-aggregate from components for those
+        # devices when the top-level total was NOT explicitly accepted from
+        # this packet (i.e. either absent or suppressed by the host-zero
+        # guard). If the device DID send a real top-level total this packet,
+        # respect it -- some models include components other than ac+dc in
+        # their top-level reading. Devices with packs preserve the original
+        # "fill once, never refresh" behavior unconditionally.
+        is_standalone = not any(cache.get(f"pack_{i}_status") for i in range(4))
 
-        if cache.get("total_output_power") is None:
-            ac_out = cache.get("ac_output_power")
-            dc_out = cache.get("dc_output_power")
-            if ac_out is not None and dc_out is not None:
-                cache["total_output_power"] = int(ac_out + dc_out)
+        ac_in = cache.get("ac_input_power")
+        dc_in = cache.get("dc_input_power")
+        should_aggregate_input = cache.get("total_input_power") is None or (
+            is_standalone and not total_input_top_level_used
+        )
+        if should_aggregate_input and ac_in is not None and dc_in is not None:
+            cache["total_input_power"] = int(ac_in + dc_in)
+
+        ac_out = cache.get("ac_output_power")
+        dc_out = cache.get("dc_output_power")
+        should_aggregate_output = cache.get("total_output_power") is None or (
+            is_standalone and not total_output_top_level_used
+        )
+        if should_aggregate_output and ac_out is not None and dc_out is not None:
+            cache["total_output_power"] = int(ac_out + dc_out)
 
         # ---- SOC vs Host % ----
         # Your device alternates two payload shapes:

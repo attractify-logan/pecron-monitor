@@ -282,5 +282,150 @@ class TestSocFallback(unittest.TestCase):
                          "on live host packets even after a prior overall packet")
 
 
+# -------------------- Total power fallback (issue #48) --------------------
+
+
+class TestTotalPowerFallback(unittest.TestCase):
+    """Issue #48: same one-time-fill pattern as #43 but for total_input_power /
+    total_output_power. The host-zero guard on the top-level total fields keeps
+    a stale non-zero cached value when AC drops; the aggregate fallback never
+    re-runs because the cached value is no longer None. Standalone PPS must
+    re-aggregate from components on every packet so the published JSON tracks
+    the live state. Devices with occupied packs preserve the original
+    "fill once, don't clobber" behavior."""
+
+    def test_standalone_pps_total_input_power_refreshes(self):
+        """Stale cached total_input_power must drop to 0 on a standalone PPS
+        when ac_input_power and dc_input_power both read 0 in a live packet."""
+        b = make_bridge()
+
+        # Step 1: live host packet with ac/dc input populated. The aggregate
+        # fallback fills total_input_power=1500 (= 1200 + 300). Per-source
+        # paths are nested under ac_data_input_hm / dc_data_input_hm to match
+        # the live MQTT shape (see constants.SENSOR_FIELDS).
+        kv_initial = {
+            "host_packet_data_jdb": {
+                "host_packet_voltage": 53.1,
+                "host_packet_electric_percentage": 95,
+            },
+            "ac_data_input_hm": {"ac_input_power": 1200},
+            "dc_data_input_hm": {"dc_input_power": 300},
+        }
+        b.publish_state("DEV1", kv_initial)
+        cache = b._state_cache["DEV1"]
+        self.assertEqual(cache.get("total_input_power"), 1500,
+                         "initial aggregate should populate total_input_power")
+
+        # Step 2: AC drops, live host packet shows ac_input=0 and dc_input=0.
+        # On a standalone PPS the cached total must be re-aggregated to 0
+        # instead of holding the stale 1500 forever (which is what bug #48
+        # produced before this fix).
+        kv_ac_dropped = {
+            "host_packet_data_jdb": {
+                "host_packet_voltage": 53.1,
+                "host_packet_electric_percentage": 95,
+            },
+            "ac_data_input_hm": {"ac_input_power": 0},
+            "dc_data_input_hm": {"dc_input_power": 0},
+        }
+        b.publish_state("DEV1", kv_ac_dropped)
+        cache = b._state_cache["DEV1"]
+        self.assertEqual(cache.get("ac_input_power"), 0)
+        self.assertEqual(cache.get("dc_input_power"), 0)
+        self.assertEqual(cache.get("total_input_power"), 0,
+                         "standalone PPS total_input_power must refresh to 0 "
+                         "when ac_input_power and dc_input_power both drop to 0")
+
+    def test_standalone_pps_total_output_power_refreshes(self):
+        """Same pattern for the output side: stale cached total_output_power
+        must follow live ac_output_power + dc_output_power on standalone PPS."""
+        b = make_bridge()
+
+        kv_initial = {
+            "host_packet_data_jdb": {
+                "host_packet_voltage": 53.1,
+                "host_packet_electric_percentage": 95,
+            },
+            "ac_data_output_hm": {"ac_output_power": 800},
+            "dc_data_output_hm": {"dc_output_power": 200},
+        }
+        b.publish_state("DEV1", kv_initial)
+        cache = b._state_cache["DEV1"]
+        self.assertEqual(cache.get("total_output_power"), 1000,
+                         "initial aggregate should populate total_output_power")
+
+        kv_load_dropped = {
+            "host_packet_data_jdb": {
+                "host_packet_voltage": 53.1,
+                "host_packet_electric_percentage": 95,
+            },
+            "ac_data_output_hm": {"ac_output_power": 0},
+            "dc_data_output_hm": {"dc_output_power": 0},
+        }
+        b.publish_state("DEV1", kv_load_dropped)
+        cache = b._state_cache["DEV1"]
+        self.assertEqual(cache.get("ac_output_power"), 0)
+        self.assertEqual(cache.get("dc_output_power"), 0)
+        self.assertEqual(cache.get("total_output_power"), 0,
+                         "standalone PPS total_output_power must refresh to 0 "
+                         "when ac_output_power and dc_output_power both drop to 0")
+
+    def test_total_power_not_clobbered_with_packs(self):
+        """Devices with at least one occupied expansion pack must preserve
+        the original 'fill once, don't clobber' behavior: a cached
+        total_input_power must NOT be re-aggregated from components on
+        subsequent packets, since the canonical top-level total reading is
+        authoritative for those models."""
+        b = make_bridge()
+
+        connected_pack = {
+            "charging_pack_status": 3,  # balanced charging
+            "charging_pack_battery": 80,
+            "charging_pack_voltage": 53.0,
+            "charging_pack_current": 1.2,
+            "charging_pack_temp": 28,
+        }
+
+        # First packet: top-level total_input_power is the canonical reading
+        # for this model. Pack data marks it as non-standalone (one occupied
+        # pack is enough to disable the standalone re-aggregation path).
+        kv_with_total = {
+            "battery_percentage": 85,
+            "total_input_power": 1500,
+            "ac_data_input_hm": {"ac_input_power": 1200},
+            "dc_data_input_hm": {"dc_input_power": 300},
+            "charging_pack_data_jdb": [
+                connected_pack,
+                {"charging_pack_status": 4},
+                {"charging_pack_status": 4},
+                {"charging_pack_status": 4},
+            ],
+        }
+        b.publish_state("DEV1", kv_with_total)
+        cache = b._state_cache["DEV1"]
+        self.assertEqual(cache.get("total_input_power"), 1500,
+                         "initial top-level total_input_power should populate cache")
+
+        # Second packet: same pack still occupied, ac/dc drop to 0 but the
+        # top-level total isn't re-emitted in this packet. The cached value
+        # must NOT be re-aggregated from components (would clobber 1500 with 0).
+        kv_packet_two = {
+            "battery_percentage": 85,
+            "ac_data_input_hm": {"ac_input_power": 0},
+            "dc_data_input_hm": {"dc_input_power": 0},
+            "charging_pack_data_jdb": [
+                connected_pack,
+                {"charging_pack_status": 4},
+                {"charging_pack_status": 4},
+                {"charging_pack_status": 4},
+            ],
+        }
+        b.publish_state("DEV1", kv_packet_two)
+        cache = b._state_cache["DEV1"]
+        self.assertEqual(cache.get("total_input_power"), 1500,
+                         "cached total_input_power must not be re-aggregated "
+                         "on devices with occupied expansion packs")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
