@@ -44,7 +44,10 @@ class TestModelBehavior(unittest.TestCase):
     def test_enable_sends_for_e3800(self):
         m = make_monitor(["E3800LFP"])
         m._enable_high_freq_reporting()
-        m.send_control.assert_called_once_with("dk0", "high_frequency_reporting", 3)
+        # high_frequency_reporting is transient -- the device auto-reverts the
+        # value, so the warm-up callers pass verify=False to skip the noisy
+        # post-write read-back (issue #50).
+        m.send_control.assert_called_once_with("dk0", "high_frequency_reporting", 3, verify=False)
 
     def test_mixed_fleet_sends_only_for_effective_models(self):
         """A mixed config should send for E3800LFP and skip E3600LFP."""
@@ -62,13 +65,15 @@ class TestModelBehavior(unittest.TestCase):
     def test_disable_sends_for_e3800(self):
         m = make_monitor(["E3800LFP"])
         m._disable_high_freq_reporting()
-        m.send_control.assert_called_once_with("dk0", "high_frequency_reporting", 0)
+        # See test_enable_sends_for_e3800 -- verify=False on transient writes (#50).
+        m.send_control.assert_called_once_with("dk0", "high_frequency_reporting", 0, verify=False)
 
     def test_unknown_model_defaults_to_effective(self):
         """Baseline (unlisted models) keeps current behavior: send the setting."""
         m = make_monitor(["SomeNewModel"])
         m._enable_high_freq_reporting()
-        m.send_control.assert_called_once_with("dk0", "high_frequency_reporting", 3)
+        # See test_enable_sends_for_e3800 -- verify=False on transient writes (#50).
+        m.send_control.assert_called_once_with("dk0", "high_frequency_reporting", 3, verify=False)
 
 
 class TestE3600Capacity(unittest.TestCase):

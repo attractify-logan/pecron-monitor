@@ -159,6 +159,48 @@ class TestSendControlReadback(unittest.TestCase):
         t.read_status.assert_not_called()
 
 
+class TestVerifyOptOut(unittest.TestCase):
+    """`verify=False` skips the post-write read-back for transient control codes
+    that the device intentionally auto-reverts (e.g. `high_frequency_reporting`,
+    see issue #50)."""
+
+    def test_verify_false_skips_readback(self):
+        """`verify=False` returns whatever `_send_control_packet` returned and
+        never calls `read_status` -- no spurious mismatch warning."""
+        t = make_transport(CONTROLS_BOOL)
+        t._send_control_packet = MagicMock(return_value=True)
+        t.read_status = MagicMock()
+
+        result = t.send_control(data_point_id=38, value=False, ctrl_type="BOOL", verify=False)
+
+        self.assertTrue(result)
+        t._send_control_packet.assert_called_once_with(38, False, "BOOL")
+        t.read_status.assert_not_called()
+
+    def test_verify_false_returns_send_packet_failure(self):
+        """`verify=False` still surfaces transport-level send failures."""
+        t = make_transport(CONTROLS_BOOL)
+        t._send_control_packet = MagicMock(return_value=False)
+        t.read_status = MagicMock()
+
+        result = t.send_control(data_point_id=38, value=False, ctrl_type="BOOL", verify=False)
+
+        self.assertFalse(result)
+        t.read_status.assert_not_called()
+
+    def test_verify_true_default_calls_readback(self):
+        """Default behavior (no kwarg) still verifies via read-back -- backward
+        compatible with pre-#50 callers."""
+        t = make_transport(CONTROLS_BOOL)
+        t._send_control_packet = MagicMock(return_value=True)
+        t.read_status = MagicMock(return_value={"dc_switch_hm": False})
+
+        result = t.send_control(data_point_id=38, value=False, ctrl_type="BOOL")
+
+        self.assertTrue(result)
+        t.read_status.assert_called_once()
+
+
 class TestControlValuesEqual(unittest.TestCase):
 
     def test_bool_true_matches_true(self):

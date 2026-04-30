@@ -613,21 +613,30 @@ class LocalTransport:
                 self._connected = False
                 return {}
 
-    def send_control(self, data_point_id: int, value, ctrl_type: str = "BOOL") -> bool:
-        """Send a control command over local TCP and verify it took effect.
+    def send_control(self, data_point_id: int, value, ctrl_type: str = "BOOL", verify: bool = True) -> bool:
+        """Send a control command over local TCP and (by default) verify it took effect.
 
         Returns True only when a post-write read-back confirms the data point
         now reflects the requested value. False indicates the write was sent
         but the device did not apply it (rejected, watchdog-reset, malformed
-        response, etc.) — see issue #46. When the controls TSL doesn't include
+        response, etc.) -- see issue #46. When the controls TSL doesn't include
         the data point, falls back to "best-effort True" with a warning since
         we have no field name to read back against.
+
+        Pass `verify=False` for transient control codes that the device
+        intentionally auto-reverts (e.g. `high_frequency_reporting`, see
+        issue #50). With verification disabled this skips the post-write
+        read-back and returns whatever `_send_control_packet` returned.
         """
         if not self.connected:
             return False
 
-        if not self._send_control_packet(data_point_id, value, ctrl_type):
+        sent = self._send_control_packet(data_point_id, value, ctrl_type)
+        if not sent:
             return False
+
+        if not verify:
+            return sent
 
         return self._verify_control_write(data_point_id, value, ctrl_type)
 
@@ -1064,18 +1073,27 @@ class BLETransport:
                 self._connected = False
                 return {}
 
-    def send_control(self, data_point_id: int, value, ctrl_type: str = "BOOL") -> bool:
-        """Send a control command over BLE and verify it took effect.
+    def send_control(self, data_point_id: int, value, ctrl_type: str = "BOOL", verify: bool = True) -> bool:
+        """Send a control command over BLE and (by default) verify it took effect.
 
         Mirrors the read-back-verification model used by `LocalTransport.send_control`
         (see issue #46). Returns True only when a post-write read confirms the
         data point now reflects the requested value.
+
+        Pass `verify=False` for transient control codes that the device
+        intentionally auto-reverts (see issue #50). With verification disabled
+        this skips the post-write read-back and returns whatever
+        `_send_control_packet` returned.
         """
         if not self.connected:
             return False
 
-        if not self._send_control_packet(data_point_id, value, ctrl_type):
+        sent = self._send_control_packet(data_point_id, value, ctrl_type)
+        if not sent:
             return False
+
+        if not verify:
+            return sent
 
         return self._verify_control_write(data_point_id, value, ctrl_type)
 

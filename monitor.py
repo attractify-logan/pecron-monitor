@@ -759,8 +759,16 @@ class PecronMonitor:
 
     # --- Control commands ---
 
-    def send_control(self, device_key: str, control_code: str, value):
-        """Send a control command. Auto-detects type from TSL (BOOL, ENUM, INT)."""
+    def send_control(self, device_key: str, control_code: str, value, verify: bool = True):
+        """Send a control command. Auto-detects type from TSL (BOOL, ENUM, INT).
+
+        `verify=True` (default) asks the local/BLE transport to read the data
+        point back and confirm the device applied the write (issue #46). Pass
+        `verify=False` for transient control codes that the device intentionally
+        auto-reverts (e.g. `high_frequency_reporting`, see issue #50) so the
+        read-back doesn't spuriously log a mismatch warning. Cloud-only
+        transports (MQTT/REST) are unaffected -- they have no read-back step.
+        """
         device = self._find_device(device_key)
         if not device:
             log.error("Device %s not found", device_key)
@@ -793,7 +801,7 @@ class PecronMonitor:
         ble = self.ble_transports.get(device_key)
         if ble and ble.connected:
             try:
-                if ble.send_control(ctrl["id"], value, ctrl_type):
+                if ble.send_control(ctrl["id"], value, ctrl_type, verify=verify):
                     log.info("Sent %s=%s (type=%s) to %s via BLE", control_code, value, ctrl_type, device_key)
                     return True
             except Exception as e:
@@ -809,7 +817,7 @@ class PecronMonitor:
                     log.debug("Local TCP reconnect failed for %s: %s", device_key, e)
             if lt.connected:
                 try:
-                    if lt.send_control(ctrl["id"], value, ctrl_type):
+                    if lt.send_control(ctrl["id"], value, ctrl_type, verify=verify):
                         log.info("Sent %s=%s (type=%s) to %s via TCP", control_code, value, ctrl_type, device_key)
                         return True
                 except Exception as e:
@@ -1348,7 +1356,10 @@ class PecronMonitor:
         for i, d in enumerate(effective):
             dk = d["device_key"]
             try:
-                self.send_control(dk, "high_frequency_reporting", 3)
+                # high_frequency_reporting is transient: device auto-reverts the
+                # value so a post-write read-back will mismatch and log a noisy
+                # but meaningless warning (issue #50). Skip verification here.
+                self.send_control(dk, "high_frequency_reporting", 3, verify=False)
                 log.info("Enabled high-freq reporting for %s", dk)
             except Exception as e:
                 log.debug("Could not enable high-freq for %s: %s", dk, e)
@@ -1362,7 +1373,8 @@ class PecronMonitor:
                 continue  # never enabled → nothing to disable
             dk = d["device_key"]
             try:
-                self.send_control(dk, "high_frequency_reporting", 0)
+                # Transient control code; suppress read-back verification (#50).
+                self.send_control(dk, "high_frequency_reporting", 0, verify=False)
                 log.info("Disabled high-freq reporting for %s (warm-up complete)", dk)
             except Exception as e:
                 log.debug("Could not disable high-freq for %s: %s", dk, e)
