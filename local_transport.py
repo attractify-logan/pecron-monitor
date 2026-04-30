@@ -614,10 +614,27 @@ class LocalTransport:
                 return {}
 
     def send_control(self, data_point_id: int, value, ctrl_type: str = "BOOL") -> bool:
-        """Send a control command over local TCP."""
+        """Send a control command over local TCP and verify it took effect.
+
+        Returns True only when a post-write read-back confirms the data point
+        now reflects the requested value. False indicates the write was sent
+        but the device did not apply it (rejected, watchdog-reset, malformed
+        response, etc.) — see issue #46. When the controls TSL doesn't include
+        the data point, falls back to "best-effort True" with a warning since
+        we have no field name to read back against.
+        """
         if not self.connected:
             return False
 
+        if not self._send_control_packet(data_point_id, value, ctrl_type):
+            return False
+
+        return self._verify_control_write(data_point_id, value, ctrl_type)
+
+    def _send_control_packet(self, data_point_id: int, value, ctrl_type: str) -> bool:
+        """Build and send the TTLV write packet. Returns True if the packet
+        went out and a response was received at the transport level. Does NOT
+        verify the device accepted the write — callers must read back."""
         with self._lock:
             try:
                 ctrl_type = ctrl_type.upper()
@@ -635,13 +652,90 @@ class LocalTransport:
 
                 resp = self._recv_packet()
                 parsed = _ttlv_parse_packet(resp)
-                log.info("Local control response: cmd=0x%04x", parsed.get("cmd", 0))
+                log.info("Local control write response: cmd=0x%04x", parsed.get("cmd", 0))
                 return True
 
             except Exception as e:
-                log.error("Local control failed: %s", e)
+                log.error("Local control send failed: %s", e)
                 self._connected = False
                 return False
+
+    def _verify_control_write(self, data_point_id: int, expected_value, ctrl_type: str) -> bool:
+        """Read back device state and confirm data_point_id reflects expected_value.
+
+        Returns True only when the read-back confirms the write took effect.
+        Falls back to best-effort True (with warning) if the controls TSL has
+        no entry for data_point_id — without a field name we can't index into
+        the read response.
+        """
+        field = self._field_for_data_point(data_point_id)
+        if field is None:
+            log.warning(
+                "data_point_id=%d not in controls map for %s; cannot verify write, "
+                "falling back to best-effort success",
+                data_point_id, self.device_key,
+            )
+            return True
+
+        # Brief settling delay; some firmwares need a moment before reads
+        # reflect a just-written value.
+        time.sleep(0.5)
+
+        try:
+            kv = self.read_status()
+        except Exception as e:
+            log.warning("Read-back after write to %s failed: %s", field, e)
+            return False
+
+        if not kv:
+            log.warning("Read-back after write to %s returned no fields", field)
+            return False
+
+        actual = kv.get(field)
+        if actual is None:
+            log.warning(
+                "Read-back missing field %s; cannot confirm write of value=%r",
+                field, expected_value,
+            )
+            return False
+
+        if not _control_values_equal(expected_value, actual, ctrl_type):
+            log.warning(
+                "Write to %s not confirmed: requested=%r actual=%r; device may have "
+                "rejected the write or watchdog-reset (see issue #46)",
+                field, expected_value, actual,
+            )
+            return False
+
+        log.debug("Write to %s confirmed by read-back: value=%r", field, actual)
+        return True
+
+    def _field_for_data_point(self, data_point_id: int):
+        """Reverse-lookup the TSL code for a data_point_id from self.controls."""
+        if not self.controls:
+            return None
+        for code, info in self.controls.items():
+            try:
+                if info.get("id") == data_point_id:
+                    return code
+            except AttributeError:
+                continue
+        return None
+
+
+def _control_values_equal(expected, actual, ctrl_type: str) -> bool:
+    """Compare a requested control value against what the device reported back.
+
+    BOOL fields come back from `_ttlv_parse_fields` as Python bool; ENUM/INT
+    come back as int (or float when scaled). Normalize both sides before
+    comparing so we don't trip on True vs 1, "1" vs 1, etc.
+    """
+    try:
+        if ctrl_type.upper() == "BOOL":
+            return bool(expected) == bool(actual)
+        return int(actual) == int(expected)
+    except (TypeError, ValueError):
+        return False
 
 
 # ===========================================================================
@@ -971,10 +1065,22 @@ class BLETransport:
                 return {}
 
     def send_control(self, data_point_id: int, value, ctrl_type: str = "BOOL") -> bool:
-        """Send a control command over BLE."""
+        """Send a control command over BLE and verify it took effect.
+
+        Mirrors the read-back-verification model used by `LocalTransport.send_control`
+        (see issue #46). Returns True only when a post-write read confirms the
+        data point now reflects the requested value.
+        """
         if not self.connected:
             return False
 
+        if not self._send_control_packet(data_point_id, value, ctrl_type):
+            return False
+
+        return self._verify_control_write(data_point_id, value, ctrl_type)
+
+    def _send_control_packet(self, data_point_id: int, value, ctrl_type: str) -> bool:
+        """Build and send the TTLV write packet over BLE; collect response."""
         with self._lock:
             try:
                 ctrl_type = ctrl_type.upper()
@@ -995,13 +1101,66 @@ class BLETransport:
 
                 # Collect response (0x7036 ack + 0x0014 confirmation)
                 self._collect_indications(wait=2, extra_wait=2)
-                log.info("BLE control sent: field=%d value=%s", data_point_id, value)
+                log.info("BLE control write sent: field=%d value=%s", data_point_id, value)
                 return True
 
             except Exception as e:
                 log.error("BLE control failed: %s", e)
                 self._connected = False
                 return False
+
+    def _verify_control_write(self, data_point_id: int, expected_value, ctrl_type: str) -> bool:
+        """Read back device state via BLE and confirm data_point_id reflects expected_value."""
+        field = self._field_for_data_point(data_point_id)
+        if field is None:
+            log.warning(
+                "data_point_id=%d not in controls map for %s; cannot verify BLE write, "
+                "falling back to best-effort success",
+                data_point_id, getattr(self, "device_key", "?"),
+            )
+            return True
+
+        time.sleep(0.5)
+
+        try:
+            kv = self.read_status()
+        except Exception as e:
+            log.warning("BLE read-back after write to %s failed: %s", field, e)
+            return False
+
+        if not kv:
+            log.warning("BLE read-back after write to %s returned no fields", field)
+            return False
+
+        actual = kv.get(field)
+        if actual is None:
+            log.warning(
+                "BLE read-back missing field %s; cannot confirm write of value=%r",
+                field, expected_value,
+            )
+            return False
+
+        if not _control_values_equal(expected_value, actual, ctrl_type):
+            log.warning(
+                "BLE write to %s not confirmed: requested=%r actual=%r",
+                field, expected_value, actual,
+            )
+            return False
+
+        log.debug("BLE write to %s confirmed by read-back: value=%r", field, actual)
+        return True
+
+    def _field_for_data_point(self, data_point_id: int):
+        """Reverse-lookup the TSL code for a data_point_id from self.controls."""
+        if not self.controls:
+            return None
+        for code, info in self.controls.items():
+            try:
+                if info.get("id") == data_point_id:
+                    return code
+            except AttributeError:
+                continue
+        return None
 
     def is_alive(self) -> bool:
         """Check if the gatttool process is still running."""
