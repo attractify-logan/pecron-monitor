@@ -122,6 +122,13 @@ class HomeAssistantBridge:
         # don't clobber sensors to 0/unknown in Home Assistant.
         self._last_state = {}  # device_key -> dict
 
+        # Issue #49: command topics captured during _publish_discovery so the
+        # subscribe loop in on_connect stays in lockstep with what's actually
+        # registered in HA. Adding a new switch with a command_topic to
+        # discovery automatically wires its subscription -- no parallel
+        # hardcoded list to drift against.
+        self._command_topics: list = []
+
     def connect(self):
         """Initial connection attempt. If it fails the bridge is not fatal;
         the monitor's main loop will call try_reconnect() periodically."""
@@ -155,11 +162,14 @@ class HomeAssistantBridge:
                 self._connected = True
                 log.info("Home Assistant MQTT bridge connected to %s:%d", host, port)
                 self._publish_discovery()
-                # Subscribe to command topics
-                for device in self.devices:
-                    dk = device["device_key"]
-                    for ctrl in ["ac", "dc", "ups"]:
-                        client.subscribe(f"pecron/{dk}/{ctrl}/set", qos=1)
+                # Issue #49: subscribe to every command_topic that
+                # _publish_discovery just registered. Single source of truth --
+                # adding a new switch to discovery automatically wires its
+                # subscription. Previously the subscribe loop hardcoded
+                # ["ac", "dc", "ups"] and silently dropped commands sent to
+                # eco_mode, touch_lock, auto_light_flag_as, etc.
+                for topic in self._command_topics:
+                    client.subscribe(topic, qos=1)
 
         def on_disconnect(client, ud, disconnect_flags, rc, props=None):
             # paho auto-reconnect handles this after a successful initial connect,
@@ -218,6 +228,9 @@ class HomeAssistantBridge:
     def _publish_discovery(self):
         """Publish HA MQTT auto-discovery messages."""
         self._published_topics = set()
+        # Issue #49: reset before discovery so on_connect's subscribe loop
+        # (which runs right after this) sees only currently-registered topics.
+        self._command_topics = []
         for device in self.devices:
             dk = device["device_key"]
             name = device["device_name"]
@@ -872,6 +885,11 @@ class HomeAssistantBridge:
         topic = f"{self.discovery_prefix}/{component}/pecron_{dk}/{key}/config"
         self.client.publish(topic, json.dumps(config), qos=1, retain=True)
         self._published_topics.add(topic)
+        # Issue #49: capture every command_topic this entity registers so the
+        # MQTT subscribe step in on_connect stays in lockstep with discovery.
+        cmd_topic = config.get("command_topic")
+        if cmd_topic and cmd_topic not in self._command_topics:
+            self._command_topics.append(cmd_topic)
 
     def _clear_stale_entities(self, dk: str):
         """Publish empty retained messages for entities that were previously published
