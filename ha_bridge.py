@@ -1266,14 +1266,22 @@ class HomeAssistantBridge:
                 except (TypeError, ValueError):
                     pass
 
-        # SOC fallback: on standalone PPS that only emit host-shape packets
-        # (e.g. E1500LFP) the "overall" SOC number never lands in cache, so
-        # HA's Battery (SOC) entity shows Unknown forever. When there are no
-        # expansion packs attached, overall SOC == host SOC by definition,
-        # so mirror host_percent into soc_percent whenever soc_percent isn't
-        # already populated. Devices with expansion packs still get their
-        # real soc_percent from whichever packet shape carries it.
-        if cache.get("soc_percent") is None and cache.get("host_percent") is not None:
+        # SOC fallback: on standalone PPS (no occupied expansion packs) the
+        # overall SOC and host % are by definition the same number, so mirror
+        # host_percent into soc_percent on every host-shape packet so HA tracks
+        # live state. Without this, a single "overall" packet that happened to
+        # arrive at a stale value (e.g. 100% reported just before the device
+        # went into shutdown) leaves soc_percent frozen at that value forever
+        # while host_percent updates live with every host-shape packet.
+        # Devices WITH expansion packs preserve the original "fill once, don't
+        # clobber" behavior: their overall SOC and host % can legitimately
+        # differ, and the explicit overall-shape reading is canonical.
+        # Pack processing runs earlier in this function, so pack_*_status in
+        # cache already reflects this packet's pack state when we get here.
+        has_pack = any(cache.get(f"pack_{i}_status") for i in range(4))
+        if cache.get("host_percent") is not None and (
+            not has_pack or cache.get("soc_percent") is None
+        ):
             cache["soc_percent"] = cache["host_percent"]
 
         # Ensure keys exist for HA templates (but don't force unknown -> 0)

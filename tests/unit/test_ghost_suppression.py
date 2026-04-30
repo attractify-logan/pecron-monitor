@@ -207,27 +207,79 @@ class TestSocFallback(unittest.TestCase):
                          "soc_percent must mirror host_percent when not independently set")
 
     def test_explicit_soc_not_overwritten_by_host(self):
-        """When the overall-shape packet provides soc_percent, don't clobber it with host."""
+        """Devices WITH expansion packs: overall SOC and host % can legitimately
+        differ; the explicit overall-shape reading must not be clobbered."""
         b = make_bridge()
-        # First packet: overall shape sets soc_percent (device with expansion
-        # pack reports distinct overall SOC).
-        kv_overall = {"battery_percentage": 85}  # no host_packet_data_jdb
+        connected_pack = {
+            "charging_pack_status": 3,  # balanced charging
+            "charging_pack_battery": 80,
+            "charging_pack_voltage": 53.0,
+            "charging_pack_current": 1.2,
+            "charging_pack_temp": 28,
+        }
+
+        # First packet: overall shape sets soc_percent. Pack data marks this as
+        # a non-standalone unit so the fallback preserves the explicit reading.
+        kv_overall = {
+            "battery_percentage": 85,
+            "charging_pack_data_jdb": [connected_pack, {"charging_pack_status": 4},
+                                       {"charging_pack_status": 4}, {"charging_pack_status": 4}],
+        }
         b.publish_state("DEV1", kv_overall)
         self.assertEqual(b._state_cache["DEV1"].get("soc_percent"), 85)
 
-        # Second packet: host shape with different host_percent. soc_percent
-        # is already populated, so fallback must not rewrite it to host_percent.
+        # Second packet: host shape with a different host_percent. soc_percent
+        # is already populated and a pack is occupied, so fallback must NOT
+        # rewrite it to host_percent.
         kv_host = {
             "host_packet_data_jdb": {
                 "host_packet_voltage": 53.1,
                 "host_packet_electric_percentage": 90,
-            }
+            },
+            "charging_pack_data_jdb": [connected_pack, {"charging_pack_status": 4},
+                                       {"charging_pack_status": 4}, {"charging_pack_status": 4}],
         }
         b.publish_state("DEV1", kv_host)
         cache = b._state_cache["DEV1"]
         self.assertEqual(cache.get("host_percent"), 90)
         self.assertEqual(cache.get("soc_percent"), 85,
-                         "explicit soc_percent must not be clobbered by host fallback")
+                         "explicit soc_percent must not be clobbered by host fallback "
+                         "on devices with expansion packs")
+
+    def test_standalone_pps_soc_refreshes_on_live_host_packet(self):
+        """Issue #43: standalone PPS (no expansion packs) must keep soc_percent
+        in sync with host_percent on every live host-shape packet, even after
+        a stale overall-shape packet has populated soc_percent.
+
+        Without this, a single overall packet (e.g. battery_percentage=100
+        reported as the device entered shutdown) freezes soc_percent forever
+        while host_percent continues updating from live cloud-MQTT host packets,
+        breaking any HA automation that watches the SOC sensor."""
+        b = make_bridge()
+
+        # Step 1: a stale overall-shape packet seeds cache with soc_percent=100
+        # (e.g. last value before the device went to shutdown). No pack data,
+        # so the device is treated as standalone.
+        kv_stale_overall = {"battery_percentage": 100}
+        b.publish_state("DEV1", kv_stale_overall)
+        self.assertEqual(b._state_cache["DEV1"].get("soc_percent"), 100,
+                         "initial overall packet should populate soc_percent")
+
+        # Step 2: live host-shape packet arrives showing the device is
+        # actually at 82%. soc_percent must follow because the device has
+        # no expansion packs.
+        kv_live_host = {
+            "host_packet_data_jdb": {
+                "host_packet_voltage": 52.5,
+                "host_packet_electric_percentage": 82,
+            },
+        }
+        b.publish_state("DEV1", kv_live_host)
+        cache = b._state_cache["DEV1"]
+        self.assertEqual(cache.get("host_percent"), 82)
+        self.assertEqual(cache.get("soc_percent"), 82,
+                         "standalone PPS soc_percent must follow host_percent "
+                         "on live host packets even after a prior overall packet")
 
 
 if __name__ == "__main__":
