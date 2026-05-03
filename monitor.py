@@ -39,6 +39,37 @@ except ImportError:
 
 log = logging.getLogger("pecron")
 
+# Cloud polling rate-limit floor.
+# Pecron's cloud applies a per-account cap of roughly 1280 polls/day (issue #29,
+# verified empirically by @brucehoult: poll_interval=62 trips code 4026 around
+# 23:45 UTC, poll_interval=63 makes it through, poll_interval=120 sails through
+# clean). The argument for 63 as the hard floor: at poll_interval=60, his
+# account ran out of budget at ~23:00 UTC; bumping to 63 stretches the same
+# budget to 23 * 63/60 = 24.15 hours, which crosses the 00:00 UTC reset. We
+# refuse to start below MIN_POLL_INTERVAL and warn below RECOMMENDED_POLL_INTERVAL.
+MIN_POLL_INTERVAL = 63
+RECOMMENDED_POLL_INTERVAL = 70
+
+
+def _validate_poll_interval(poll_interval: int) -> None:
+    """Refuse below MIN_POLL_INTERVAL, warn below RECOMMENDED_POLL_INTERVAL."""
+    if poll_interval < MIN_POLL_INTERVAL:
+        raise ValueError(
+            f"poll_interval={poll_interval}s is below the {MIN_POLL_INTERVAL}s floor. "
+            f"Pecron's cloud rate-limits per account at roughly 1280 polls/day; "
+            f"poll_interval=62 reliably trips code 4026 ('Insufficient resources') "
+            f"around 23:45 UTC daily, while {MIN_POLL_INTERVAL}s is the empirical "
+            f"minimum that stretches the budget past the 00:00 UTC reset. Raise "
+            f"poll_interval to {RECOMMENDED_POLL_INTERVAL} or higher in config.yaml. "
+            f"See pecron-monitor issue #29 for the full evidence trail."
+        )
+    if poll_interval < RECOMMENDED_POLL_INTERVAL:
+        log.warning(
+            "poll_interval=%ds is below the recommended %ds and may trip cloud rate-limit "
+            "code 4026 within ~24h (issue #29). Consider raising to %d.",
+            poll_interval, RECOMMENDED_POLL_INTERVAL, RECOMMENDED_POLL_INTERVAL,
+        )
+
 
 class PecronMonitor:
     def __init__(self, config: dict, no_ble: bool = False, rest_only: bool = False):
@@ -554,6 +585,18 @@ class PecronMonitor:
                     log.warning("If device verification succeeds or telemetry still arrives via MQTT/local/REST, you can usually ignore this warning.")
                     log.warning("Only treat it as actionable if the warning persists AND the device never produces telemetry.")
                     log.warning("Then run 'python pecron_monitor.py --diagnose -v' or '--setup' to verify the product_key/device_key pair.")
+            elif code == 4026:
+                log.warning("Cloud system message: code=%s msg='%s' type=%s", code, msg_text, msg_type)
+                if not getattr(self, "_4026_warned", False):
+                    self._4026_warned = True
+                    configured = self.config.get("poll_interval", RECOMMENDED_POLL_INTERVAL)
+                    log.error(
+                        "Pecron cloud returned code 4026 ('Insufficient resources'). This is a "
+                        "per-account polling rate-limit (~1280 polls/day) — not a Pecron-side "
+                        "outage. Current poll_interval=%ds. Raise it in config.yaml (>=%d "
+                        "recommended) and restart. The cap resets at 00:00 UTC. See issue #29.",
+                        configured, RECOMMENDED_POLL_INTERVAL,
+                    )
             elif code and code != 200:
                 log.warning("Cloud system message: code=%s msg='%s' type=%s", code, msg_text, msg_type)
             else:
@@ -1263,6 +1306,13 @@ class PecronMonitor:
 
     def run(self, enable_ha=False, force_offline=False):
         self._running = True
+
+        # Fail fast on a broken poll_interval before any cloud login or MQTT
+        # connection — this is config-only validation and shouldn't cost a
+        # round-trip to fail.
+        poll_interval = self.config.get("poll_interval", RECOMMENDED_POLL_INTERVAL)
+        _validate_poll_interval(poll_interval)
+
         self.authenticate(force_offline=force_offline)
         self.connect_mqtt()
 
@@ -1274,7 +1324,6 @@ class PecronMonitor:
                 self.ha_bridge.command_callback = self._ha_command
                 self.ha_bridge.connect()
 
-        poll_interval = self.config.get("poll_interval", 60)
         log.info("Monitoring started (polling every %ds)", poll_interval)
 
         # Smart high-freq warm-up mode:

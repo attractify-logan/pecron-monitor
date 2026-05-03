@@ -4,6 +4,22 @@ All notable changes to pecron-monitor are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.7.6] - 2026-05-03
+
+### Changed
+- **`poll_interval` default raised from 60 to 70** (#29). Pecron's cloud rate-limits per-account at roughly 1280 polls/day; configured 60 produced a ~65s effective cycle (~1329 polls/day) which sat right on top of the cap and tripped `code 4026 'Insufficient resources'` daily around 23:00 UTC. 70s gives ~1152 polls/day with comfortable margin. The setup wizard now suggests 70 in interactive mode and writes 70 in `--auto` mode.
+- **BREAKING: `poll_interval` hard floor of 63s** (#29). Configs with `poll_interval` below 63 (including the previous default of 60) now raise `ValueError` at startup with a pointer to the rate-limit math. 63 is @brucehoult's empirically-derived floor: at 60 his account exhausts the daily budget at ~23:00 UTC, at 63 the same budget stretches to 23×63/60 = 24.15h and crosses the 00:00 UTC reset. Upgraders with `poll_interval: 60` in config must bump to 63+ (or remove the field to inherit the new 70 default).
+
+### Added
+- **Startup warning for `poll_interval` between 63 and 69**. References issue #29 so operators can decide whether to raise toward the recommended 70 or accept the slim margin.
+- **One-shot ERROR log on receipt of `code 4026`**. The monitor previously logged a generic `WARNING Cloud system message: code=4026 ...` that buried the cause. Now also emits an ERROR explaining the per-account cap and recommending a `poll_interval` bump. Subsequent 4026s in the same session stay at WARNING to avoid log spam.
+
+### Documentation
+- **`docs/known-pecron-api-quirks.md` 4026 section rewritten**. The original entry framed 4026 as an unfixable Pecron-side global quota; @brucehoult's evidence in #29 (poll_interval matrix from 60s through 120s) showed it's actually a per-account polling rate-limit. Replaced with the corrected understanding plus a regional caveat (NA accounts may not hit it as easily).
+- README config example updated; new note explaining the floor and the rationale.
+
+Credit: root cause isolated by @brucehoult across #14 and #29.
+
 ## [0.7.5] - 2026-04-19
 
 ### Fixed

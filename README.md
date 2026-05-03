@@ -118,7 +118,7 @@ devices:
     lan_ip: "192.168.1.100"     # For WiFi TCP (auto-detected by setup)
     auth_key: "base64key=="     # Fetched from cloud once, cached forever
 
-poll_interval: 60
+poll_interval: 70   # seconds; 63 is the hard floor, 70 is the recommended default. See note below.
 
 alerts:
   low_battery_percent: 20
@@ -136,6 +136,8 @@ rules:
       set_ac: false
     cooldown_minutes: 30
 ```
+
+> **`poll_interval` floor.** Pecron's cloud rate-limits per-account at roughly 1280 polls/day (issue #29). The monitor refuses to start below 63s and warns between 63 and 69s. Below 63s the cap trips daily around 23:00 UTC with `code 4026 'Insufficient resources'`. The default of 70s leaves comfortable margin. Raise it further if you're seeing 4026 in your logs.
 
 ### Alert Options
 

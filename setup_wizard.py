@@ -292,7 +292,7 @@ def setup_wizard(auto=False):
 
     if auto:
         # Auto mode: use defaults
-        poll = "60"
+        poll = "70"
         threshold = "20"
         tg_enabled = False
         tg_token = tg_chat = ""
@@ -304,7 +304,7 @@ def setup_wizard(auto=False):
         print(f"  Telegram alerts: disabled")
         print(f"  Home Assistant: disabled")
     else:
-        poll = input("\nPoll interval in seconds [60]: ").strip() or "60"
+        poll = input("\nPoll interval in seconds [70]: ").strip() or "70"
         threshold = input("Low battery alert threshold % [20]: ").strip() or "20"
 
         print("\n--- Telegram Alerts (optional) ---")

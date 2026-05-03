@@ -21,16 +21,34 @@ TSL property `high_frequency_reporting` (id=100, ENUM) is meant to make the devi
 
 pecron-monitor skips the send entirely for E3600/E3600LFP (see `MODEL_BEHAVIOR` in `constants.py`) to avoid wasting cloud requests. The only observed way to force faster telemetry on an E3600 is to leave the official Pecron mobile app open on the device's status screen, but that causes the "Insufficient resources" quota exhaustion documented in the next entry, so it's not a real workaround.
 
-## Pecron cloud `code 4026 Insufficient resources` around 23:00 UTC daily
+## Pecron cloud `code 4026 Insufficient resources` is a per-account polling rate-limit
 
 **First documented by:** [@brucehoult in pecron-monitor issue #14](https://github.com/attractify-logan/pecron-monitor/issues/14)
-**Affects:** Cloud MQTT and REST on E3600LFP (possibly others, unconfirmed for now)
+**Root cause isolated by:** [@brucehoult in pecron-monitor issue #29 (2026-05-01..03)](https://github.com/attractify-logan/pecron-monitor/issues/29)
+**Affects:** Cloud MQTT and REST, any model
 
-Starting near 23:00-23:15 UTC, the Pecron cloud begins returning `type=BUSI-ERROR, code=4026, msg='Insufficient resources in the manufacturer's account. Please contact the device manufacturer.'` for control writes. Telemetry packets stop arriving. Service resumes like clockwork at 00:00 UTC, consistent with a daily quota reset on Pecron's side.
+Pecron's cloud returns `type=BUSI-ERROR, code=4026, msg='Insufficient resources in the manufacturer's account. Please contact the device manufacturer.'` after the account hits a daily polling quota. The cap is roughly **1280 polls/day** per account. The window resets at 00:00 UTC.
 
-@brucehoult reproduced this for four consecutive days after upgrading to v0.7.0, and importantly **it happens with pecron-monitor stopped and the Pecron app not open**. The quota is attached to the manufacturer's account, not our request volume. Nothing pecron-monitor can do about it besides waiting for 00:00 UTC.
+The original framing — a Pecron-side global quota that nothing on our end could affect — was wrong. @brucehoult disproved it by varying `poll_interval`:
 
-If this affects your usage pattern, the 23:00 UTC window is a poor time to rely on automations that send control commands. The monitor continues running and will resume normal operation once the Pecron cloud clears its quota.
+| `poll_interval` | Outcome |
+| --- | --- |
+| 60s | 4026 fires daily around 23:00 UTC |
+| 62s | 4026 fires at 23:45 UTC |
+| 63s | clean through midnight UTC |
+| 120s | clean indefinitely |
+
+The poll loop sleeps `poll_interval` seconds *then* does work, so a configured 60 produces a ~65s effective cycle (~1329 polls/day) — sitting on top of the 1280 cap. 63s gives ~1271/day, just under it.
+
+`pecron-monitor` defends against this in three ways:
+
+1. **Default `poll_interval` is 70s** (margin over the empirical 63s floor).
+2. **Hard floor of 63s** at startup. Lower values raise `ValueError` with a pointer to this section. 63 is @brucehoult's empirical floor: at `poll_interval=60` his account exhausts the daily budget at ~23:00 UTC; at 63 the same budget stretches to 23 × 63/60 = 24.15h, crossing the 00:00 UTC reset. See `MIN_POLL_INTERVAL` / `RECOMMENDED_POLL_INTERVAL` in `monitor.py`.
+3. **One-shot ERROR on 4026 receipt** that explains the rate-limit cause and recommends raising `poll_interval`, instead of the generic warning the monitor used to emit.
+
+If you need automations to keep working through 23:00 UTC, raise `poll_interval` to 70 (the default) or higher. The cap appears to be account-level: high-frequency reporting (`high_frequency_reporting=3`) and an open Pecron app both burn the same budget faster.
+
+Regional caveat: confirmed on @brucehoult's EU-region E3600LFP. At least one NA-region account running `poll_interval=60` against three devices has not produced 4026 in 30+ days of journals — so the cap may differ by region or account tier. Treat the 1280/day figure as a useful upper bound, not a contract.
 
 ## E3600LFP battery capacity is 3072Wh, not 3600Wh
 
