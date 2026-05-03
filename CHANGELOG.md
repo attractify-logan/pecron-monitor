@@ -4,6 +4,11 @@ All notable changes to pecron-monitor are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.7.9] - 2026-05-03
+
+### Added
+- **Restore AC/DC switch state after a low-battery shutdown** (#59). Opt-in via the new `restore_outputs_after_shutdown` config block (default `enabled: false`). When a device transitions offline at SoC at or below `shutdown_threshold_pct` (default 10%), the monitor snapshots the current AC/DC switch state to `~/.pecron-monitor-state.json`. When the device later comes back online after a gap of at least `minimum_offline_seconds` (default 120s — filters out cloud blips), a background worker re-issues the saved AC/DC commands every `retry_interval_seconds` (default 30s) until observed state matches the snapshot or `retry_timeout_seconds` (default 600s) elapses. Snapshots older than `snapshot_max_age_seconds` (default 24h) are discarded. Local-TCP path is preferred (matches the latency Bruce measured in #57). State verification is via observed `latest_data` rather than `send_control` return values, which makes the loop robust against the LCD-at-0%-silently-rejects-commands pattern Bruce documented. Reproducer scenario from #57 / @brucehoult.
+
 ## [0.7.8] - 2026-05-03
 
 ### Fixed

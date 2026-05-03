@@ -345,6 +345,20 @@ def setup_wizard(auto=False):
                 "_comment": "Example rule. Edit or remove as needed.",
             },
         ],
+        "restore_outputs_after_shutdown": {
+            "enabled": False,
+            "shutdown_threshold_pct": 10,
+            "minimum_offline_seconds": 120,
+            "retry_interval_seconds": 30,
+            "retry_timeout_seconds": 600,
+            "snapshot_max_age_seconds": 86400,
+            "_comment": (
+                "When a device transitions offline at low SoC, snapshot AC/DC switch "
+                "state. When it later comes back online (e.g. mains restored after a "
+                "low-battery shutdown), restore the previous switches. See issue #59. "
+                "Set enabled: true to opt in; defaults are conservative."
+            ),
+        },
     }
 
     with open(CONFIG_PATH, "w") as f:

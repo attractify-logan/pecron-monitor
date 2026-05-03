@@ -7,10 +7,13 @@ MQTT connection, local transport management, and data processing.
 
 import json
 import logging
+import threading
 import time
 import urllib.parse
 import urllib.request
 from datetime import datetime
+
+import output_state
 
 try:
     import paho.mqtt.client as mqtt
@@ -106,6 +109,15 @@ class PecronMonitor:
         # from a user-requested offline run. Only the former should be retried.
         self._fell_back_to_offline = False
         self._last_cloud_retry_at = 0.0
+
+        # Restore-outputs-after-shutdown state (issue #59).
+        # We track per-device offline/online wall-clock to gate the restore on
+        # "at least N seconds offline" — that filters out network blips that
+        # don't represent a real device shutdown. The _restore_threads dict
+        # dedupes concurrent worker spawns (online flap re-triggering restore).
+        self._last_offline_at: dict[str, float] = {}
+        self._last_online_at: dict[str, float] = {}
+        self._restore_threads: dict[str, threading.Thread] = {}
 
     def _next_packet_id(self) -> int:
         self._packet_id = (self._packet_id + 1) % 65535
@@ -569,7 +581,10 @@ class PecronMonitor:
                 log.debug("bus_ message with empty kv: %s", list(payload["data"].keys()))
         elif topic_suffix == "onl_" and "data" in payload:
             online = payload["data"].get("value", 0) == 1
-            log.info("Device %s is now %s", device_key, "online" if online else "offline")
+            if online:
+                self._on_device_online(device_key)
+            else:
+                self._on_device_offline(device_key)
         elif topic_suffix == "ack_":
             log.debug("ACK received for device %s", device_key)
         elif topic_suffix == "sys_":
@@ -1248,6 +1263,191 @@ class PecronMonitor:
                         log.info("Got status via REST API for %s", dk)
                         self._merge_device_data(dk, kv)
                         self._process_data(dk, kv, source="REST API")
+
+    # --- Restore outputs after shutdown (issue #59) ---
+
+    @staticmethod
+    def _coerce_switch(v):
+        """ac_switch_hm / dc_switch_hm land in latest_data as bool, "ON"/"OFF" string,
+        0/1 int, or absent. Coerce to bool for snapshot/restore comparisons. None
+        passes through to signal "unobserved." """
+        if v is None:
+            return None
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return v != 0
+        if isinstance(v, str):
+            return v.upper() in ("ON", "TRUE", "1")
+        return bool(v)
+
+    def _extract_soc(self, kv: dict):
+        """Pull SoC % from kv with the same precedence as SENSOR_FIELDS["battery_percent"]:
+        host_packet_data_jdb.host_packet_electric_percentage first, then top-level
+        battery_percentage. Returns None if neither is present."""
+        host = kv.get("host_packet_data_jdb")
+        if isinstance(host, dict):
+            v = host.get("host_packet_electric_percentage")
+            if v is not None:
+                try:
+                    return int(float(v))
+                except (TypeError, ValueError):
+                    pass
+        v = kv.get("battery_percentage")
+        if v is not None:
+            try:
+                return int(float(v))
+            except (TypeError, ValueError):
+                pass
+        return None
+
+    def _restore_cfg(self) -> dict:
+        return self.config.get("restore_outputs_after_shutdown", {}) or {}
+
+    def _on_device_offline(self, device_key: str):
+        """Called when a `is now offline` event arrives. Snapshots the user's
+        current AC/DC switch state to disk if it looks like a low-battery
+        shutdown (SoC <= configured threshold)."""
+        now = time.time()
+        self._last_offline_at[device_key] = now
+        log.info("Device %s is now offline", device_key)
+
+        cfg = self._restore_cfg()
+        if not cfg.get("enabled", False):
+            return
+
+        threshold = int(cfg.get("shutdown_threshold_pct", 10))
+        kv = self.latest_data.get(device_key, {})
+        soc = self._extract_soc(kv)
+        if soc is None:
+            log.debug("No SoC observation for %s at offline transition; skipping snapshot",
+                      device_key)
+            return
+        if soc > threshold:
+            log.debug("Device %s went offline at SoC=%d%% (>%d%% threshold); not a "
+                      "low-battery shutdown — skipping snapshot.", device_key, soc, threshold)
+            return
+
+        ac_on = self._coerce_switch(kv.get("ac_switch_hm"))
+        dc_on = self._coerce_switch(kv.get("dc_switch_hm"))
+        # If either switch state is unobservable, snapshot what we have (default
+        # missing to False rather than refuse to snapshot — restore worker will
+        # only act on differences from observed live state anyway).
+        snap = output_state.OutputSnapshot.now(
+            ac_on=bool(ac_on) if ac_on is not None else False,
+            dc_on=bool(dc_on) if dc_on is not None else False,
+            soc_at_offline=soc,
+        )
+        try:
+            output_state.save(device_key, snap)
+        except OSError as e:
+            log.warning("Could not persist output snapshot for %s: %s", device_key, e)
+            return
+        log.info("Snapshotted output state for %s for shutdown-restore "
+                 "(SoC=%d%%, AC=%s, DC=%s)", device_key, soc, ac_on, dc_on)
+
+    def _on_device_online(self, device_key: str):
+        """Called when a `is now online` event arrives. If a snapshot exists
+        and the offline gap was long enough to be a real shutdown, spawns a
+        background worker to restore the AC/DC state."""
+        now = time.time()
+        self._last_online_at[device_key] = now
+        log.info("Device %s is now online", device_key)
+
+        cfg = self._restore_cfg()
+        if not cfg.get("enabled", False):
+            return
+
+        snap = output_state.get(device_key)
+        if snap is None:
+            return  # No snapshot, no restore.
+
+        max_age = int(cfg.get("snapshot_max_age_seconds", 86400))
+        age = snap.age_seconds()
+        if age > max_age:
+            log.warning("Discarding stale output snapshot for %s (age %.0fs > max %ds)",
+                        device_key, age, max_age)
+            output_state.clear(device_key)
+            return
+
+        min_offline = int(cfg.get("minimum_offline_seconds", 120))
+        last_offline = self._last_offline_at.get(device_key)
+        if last_offline is not None and (now - last_offline) < min_offline:
+            log.info("Online transition for %s within %.1fs of last offline (<%d "
+                     "minimum) — too brief to be a real shutdown, skipping restore.",
+                     device_key, now - last_offline, min_offline)
+            return
+
+        existing = self._restore_threads.get(device_key)
+        if existing is not None and existing.is_alive():
+            log.debug("Restore worker already running for %s; skipping duplicate spawn",
+                      device_key)
+            return
+
+        log.info("Starting restore worker for %s — target AC=%s, DC=%s "
+                 "(snapshot taken %.0fs ago at SoC=%d%%)",
+                 device_key, snap.ac_on, snap.dc_on, age, snap.soc_at_offline)
+        t = threading.Thread(
+            target=self._restore_outputs_worker,
+            args=(device_key, bool(snap.ac_on), bool(snap.dc_on)),
+            daemon=True,
+            name=f"restore-{device_key[:6]}",
+        )
+        self._restore_threads[device_key] = t
+        t.start()
+
+    def _restore_outputs_worker(self, device_key: str, target_ac: bool, target_dc: bool):
+        """Retry loop: every `retry_interval_seconds` (default 30s), check if
+        observed AC/DC state matches the target and re-issue commands if not.
+        Bail out when both match (success), when timeout elapses, or when the
+        monitor is shutting down. State verification is via observed
+        latest_data — robust against the LCD-at-0%-silently-rejects pattern
+        Bruce documented in #57."""
+        cfg = self._restore_cfg()
+        interval = max(1, int(cfg.get("retry_interval_seconds", 30)))
+        timeout = int(cfg.get("retry_timeout_seconds", 600))
+        started_at = time.time()
+
+        while time.time() - started_at < timeout:
+            if not self._running:
+                log.info("Monitor shutting down; restore worker for %s exiting", device_key)
+                return
+
+            kv = self.latest_data.get(device_key, {}) or {}
+            current_ac = self._coerce_switch(kv.get("ac_switch_hm"))
+            current_dc = self._coerce_switch(kv.get("dc_switch_hm"))
+
+            if current_ac == target_ac and current_dc == target_dc:
+                log.info("Restore complete for %s: AC=%s DC=%s", device_key,
+                         target_ac, target_dc)
+                output_state.clear(device_key)
+                return
+
+            if current_ac != target_ac:
+                log.info("Restore: setting AC=%s on %s (currently %s)",
+                         target_ac, device_key, current_ac)
+                try:
+                    self.set_ac(device_key, target_ac)
+                except Exception as e:
+                    log.warning("Restore: set_ac failed for %s: %s", device_key, e)
+
+            if current_dc != target_dc:
+                log.info("Restore: setting DC=%s on %s (currently %s)",
+                         target_dc, device_key, current_dc)
+                try:
+                    self.set_dc(device_key, target_dc)
+                except Exception as e:
+                    log.warning("Restore: set_dc failed for %s: %s", device_key, e)
+
+            time.sleep(interval)
+
+        kv = self.latest_data.get(device_key, {}) or {}
+        log.error("Restore for %s timed out after %ds; clearing snapshot. "
+                  "Target was AC=%s DC=%s; current is AC=%s DC=%s",
+                  device_key, timeout, target_ac, target_dc,
+                  self._coerce_switch(kv.get("ac_switch_hm")),
+                  self._coerce_switch(kv.get("dc_switch_hm")))
+        output_state.clear(device_key)
 
     def _token_needs_refresh(self) -> bool:
         if self.offline_mode:
