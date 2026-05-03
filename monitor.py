@@ -693,6 +693,29 @@ class PecronMonitor:
                 self.ha_bridge.publish_state(device_key, kv)
             return  # Skip status log until voltage arrives
 
+        # Issue #60: suppress LOCAL TCP "shutdown-window zero-frame" placeholders.
+        # When the inverter is gating off during a low-battery shutdown, local TCP
+        # returns a frame with fresh battery_pct (0) and voltage but zeroed power
+        # and remain_time. Those zeroes are technically real-time-truth (no current
+        # is flowing because the inverter is off) but in HA they clobber the cloud's
+        # last-known-good values for the 1-2 minute shutdown window, making "if
+        # input < 5W for 10min" automations false-fire. Cloud MQTT continues to
+        # arrive concurrently and stays the source of truth for power fields
+        # during this transition.
+        is_local_shutdown_zero_frame = (
+            source in ("LOCAL TCP", "BLE")
+            and battery_pct == 0
+            and total_in == 0
+            and total_out == 0
+            and remain <= 0
+        )
+        if is_local_shutdown_zero_frame:
+            log.debug("Skipping %s shutdown-window zero-frame for %s "
+                      "(battery=0%%, voltage=%.1fV, all power=0) — letting cloud "
+                      "telemetry stay authoritative for HA during shutdown.",
+                      source, device_key, voltage)
+            return  # Don't update HA, don't re-fire alerts, don't log status
+
         # Track data source — prefer local transports over cloud
         # If we already have a local source, don't let cloud overwrite it
         # (cloud MQTT fires asynchronously and can arrive after local TCP)

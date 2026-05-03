@@ -4,6 +4,11 @@ All notable changes to pecron-monitor are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.7.7] - 2026-05-03
+
+### Fixed
+- **Suppress LOCAL TCP shutdown-window zero-frames** (#60). When the inverter is gating off during a low-battery shutdown, local TCP returns a frame carrying fresh `battery_pct=0` and voltage but zeroed `total_input_power`, `total_output_power`, and `remain_time`. Those zeroes are technically real-time-truth (no current is flowing because the inverter is off) but they overwrote the cloud's last-known-good values in the misleading status log line and triggered an unnecessary HA publish + alert/rule pass during the 1-2 minute shutdown transition. `_process_data` now detects the shape (source in `{"LOCAL TCP", "BLE"}` + `battery_pct=0` + all power=0 + `remain<=0`) and skips the status log, HA publish, and rule evaluation for that single frame. Cloud MQTT continues to drive HA. Reproduction reported by @brucehoult in #57 / #60.
+
 ## [0.7.6] - 2026-05-03
 
 ### Changed
