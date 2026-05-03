@@ -4,6 +4,11 @@ All notable changes to pecron-monitor are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.7.8] - 2026-05-03
+
+### Fixed
+- **`device_status_hm` freezes at "Shut Down" on standalone PPS while the device is actively running** (#45). Sibling pattern to PR #44 (the `soc_percent` fix). `device_status_hm` is carried only by overall-shape packets, so on a standalone E1500LFP that primarily emits host-shape packets during active operation the cached status freezes at the last overall reading — typically "Shut Down" from before the device woke up. HA misreports the device as Shut Down while it's actively charging or discharging. Unlike `soc_percent`, there's no host-shape equivalent to mirror, so the fix infers status from observed power activity instead: when cached `device_status_hm == "Shut Down"` and any of `total_input_power` / `total_output_power` / `ac_output_power` / `dc_output_power` are non-zero, the cache is overridden with the inferred status (`Charging` if input > 0, else `AC Discharge` / `DC Discharge` based on which output dominates). The next genuine overall-shape packet still wins; the inference only fires when cache says "Shut Down" but power contradicts it. Reproducer reported on a live E1500LFP at 74% battery discharging at 233W AC.
+
 ## [0.7.7] - 2026-05-03
 
 ### Fixed

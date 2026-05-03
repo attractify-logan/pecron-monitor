@@ -1151,6 +1151,37 @@ class HomeAssistantBridge:
             except (TypeError, ValueError):
                 cache["device_status_hm"] = str(v)
 
+        # Issue #45: device_status_hm is carried only by overall-shape packets.
+        # On standalone PPS (E1500LFP) that primarily emit host-shape packets
+        # during active operation, the cache freezes at the last overall
+        # reading — typically "Shut Down" from before the device woke up. HA
+        # then reports the device as Shut Down even while it's actively
+        # charging or discharging. Detect the contradiction and infer the
+        # live status from observed power activity. The next genuine overall
+        # packet still wins (we only override when cached == "Shut Down"
+        # AND power is flowing). Sibling pattern of the soc_percent fix in
+        # PR #44; this field has no host-shape equivalent to mirror, so we
+        # derive it from total_input_power / total_output_power /
+        # ac_output_power / dc_output_power which host-shape packets DO carry.
+        if cache.get("device_status_hm") == "Shut Down":
+            total_in = cache.get("total_input_power") or 0
+            total_out = cache.get("total_output_power") or 0
+            ac_out = cache.get("ac_output_power") or 0
+            dc_out = cache.get("dc_output_power") or 0
+            if total_in > 0:
+                # Power coming in -> charging. Charging takes precedence over
+                # simultaneous discharge (passthrough mode reads as charging
+                # to HA, which is the user-relevant state).
+                cache["device_status_hm"] = "Charging"
+            elif total_out > 0:
+                # Power going out and none coming in -> discharging. Pick
+                # AC vs DC by which output dominates; if neither dominates,
+                # leave the cached value alone rather than guess.
+                if ac_out > dc_out:
+                    cache["device_status_hm"] = "AC Discharge"
+                elif dc_out > 0:
+                    cache["device_status_hm"] = "DC Discharge"
+
         # Current (amps)
         present, v = _get_first_present(SENSOR_FIELDS["current"])
         if present:
