@@ -5,13 +5,18 @@ Contains the PecronMonitor class which orchestrates cloud authentication,
 MQTT connection, local transport management, and data processing.
 """
 
+import os
 import json
+import shlex
+import subprocess
+import tempfile
 import logging
 import threading
 import time
 import urllib.parse
 import urllib.request
 from datetime import datetime
+from pathlib import Path
 
 import output_state
 
@@ -117,6 +122,9 @@ class PecronMonitor:
 
         # Automation rules
         self.rules = config.get("rules", [])
+        self.rule_state_config = config.get("rule_state", {}) or {}
+        self.rule_state = self._load_rule_state()
+        self._init_rules_ran = False
 
         self._mqtt_connect_failures = 0
         self._last_mqtt_rebuild_at = 0.0
@@ -1189,12 +1197,126 @@ class PecronMonitor:
 
     # --- Automation rules ---
 
-    def _evaluate_rules(self, device_key: str, kv: dict, battery_pct: int):
+    def _rule_state_path(self) -> Path:
+        """Resolve persisted rule-state path."""
+        override = os.environ.get("PECRON_RULE_STATE_PATH")
+        if override:
+            return Path(override)
+        configured = self.rule_state_config.get("path") or self.config.get("rule_state_path")
+        if configured:
+            return Path(configured).expanduser()
+        return Path.home() / ".pecron-monitor-rules.json"
+
+    def _initial_rule_state(self) -> str:
+        """Return configured initial rule state."""
+        return str(self.rule_state_config.get("initial_state", "default"))
+
+    def _load_rule_state(self) -> str:
+        """Load persisted rule state, falling back to the configured initial state."""
+        path = self._rule_state_path()
+        fallback = self._initial_rule_state()
+        if not path.exists():
+            return fallback
+        try:
+            with path.open("r") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            log.warning("Could not load rule state from %s: %s", path, e)
+            return fallback
+        state = data.get("state") if isinstance(data, dict) else None
+        return str(state) if state else fallback
+
+    def _save_rule_state(self) -> None:
+        """Persist current rule state atomically."""
+        path = self._rule_state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(prefix=".pecron-rules-", dir=str(path.parent))
+        tmp_path = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(
+                    {"state": self.rule_state, "updated_at": datetime.utcnow().isoformat()},
+                    f,
+                )
+                f.write("\n")
+            os.replace(tmp_path, path)
+        except Exception:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            raise
+
+    def _set_rule_state(self, state: str) -> None:
+        """Change and persist the single rule engine state."""
+        new_state = str(state)
+        if new_state == self.rule_state:
+            return
+        old_state = self.rule_state
+        self.rule_state = new_state
+        self._save_rule_state()
+        log.info("Rule state changed: %s -> %s", old_state, new_state)
+
+    def _rule_state_matches(self, condition: dict) -> bool:
+        """Return whether current state satisfies a rule condition's state gate."""
+        if "state" in condition:
+            return self.rule_state == str(condition["state"])
+        states = condition.get("states")
+        if states is None:
+            return True
+        if isinstance(states, str):
+            return self.rule_state == states
+        return self.rule_state in {str(state) for state in states}
+
+    def _run_rule_command(
+        self,
+        command,
+        *,
+        rule: dict,
+        action: dict,
+        device_key: str,
+        target_device_key: str,
+        kv: dict,
+        battery_pct: int,
+    ) -> None:
+        """Run a configured external command with rule context on stdin as JSON."""
+        if isinstance(command, str):
+            argv = shlex.split(command)
+        else:
+            argv = [str(part) for part in command]
+        if not argv:
+            raise ValueError("run_command cannot be empty")
+
+        payload = {
+            "rule": rule.get("name"),
+            "state": self.rule_state,
+            "device_key": device_key,
+            "target_device_key": target_device_key,
+            "battery_percent": battery_pct,
+            "voltage": self._extract_voltage(kv),
+            "data": kv,
+        }
+        timeout = float(action.get("timeout_seconds", 30))
+        result = subprocess.run(
+            argv,
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+        if result.stdout.strip():
+            log.info("Rule '%s' command stdout: %s", rule.get("name"), result.stdout.strip())
+        if result.stderr.strip():
+            log.warning("Rule '%s' command stderr: %s", rule.get("name"), result.stderr.strip())
+        if result.returncode != 0:
+            raise RuntimeError(f"command exited with status {result.returncode}: {argv[0]}")
+
+    def _evaluate_rules(self, device_key: str, kv: dict, battery_pct: int, *, init: bool = False):
         """Evaluate automation rules against current state."""
-        # Sanity check: prevent rule triggers on invalid data
-        # If battery is -1 or 0 AND voltage is 0, the data is clearly invalid
-        voltage = float(_get_kv(kv, SENSOR_FIELDS["voltage"], 0))
-        if battery_pct <= 0 and voltage == 0:
+        # Sanity check: prevent rule triggers on invalid non-init data.
+        voltage = self._extract_voltage(kv) or 0
+        if not init and battery_pct <= 0 and voltage == 0:
             log.debug(
                 "Skipping rule evaluation for %s: invalid data (battery=%d%%, voltage=%.1fV)",
                 device_key,
@@ -1211,9 +1333,16 @@ class PecronMonitor:
                 condition = rule.get("condition", {})
                 action = rule.get("action", {})
 
-                # Check condition
+                if not self._rule_state_matches(condition):
+                    continue
+
+                # Check condition. `state`/`states` are preconditions, not
+                # triggers by themselves; they must be paired with another
+                # condition such as init, voltage_below, or schedule.
                 triggered = False
-                if "battery_below" in condition:
+                if condition.get("init"):
+                    triggered = init
+                elif "battery_below" in condition:
                     # Ignore invalid battery readings (-1 means no data)
                     if battery_pct < 0:
                         continue
@@ -1325,8 +1454,34 @@ class PecronMonitor:
                             target_dk,
                         )
 
+                if "set_state" in action:
+                    self._set_rule_state(action["set_state"])
+                    log.info("Rule '%s': set state=%s", rule.get("name"), action["set_state"])
+
+                if "run_command" in action:
+                    self._run_rule_command(
+                        action["run_command"],
+                        rule=rule,
+                        action=action,
+                        device_key=device_key,
+                        target_device_key=target_dk,
+                        kv=kv,
+                        battery_pct=battery_pct,
+                    )
+
             except Exception as e:
                 log.error("Rule evaluation error: %s", e)
+
+    def _run_init_rules(self) -> None:
+        """Evaluate rules with condition.init once after devices are available."""
+        if self._init_rules_ran:
+            return
+        self._init_rules_ran = True
+        for device in self.devices:
+            device_key = device["device_key"]
+            kv = self.latest_data.get(device_key, {})
+            battery_pct = int(_get_kv(kv, SENSOR_FIELDS["battery_percent"], -1))
+            self._evaluate_rules(device_key, kv, battery_pct, init=True)
 
     # --- Status request ---
 
@@ -1842,6 +1997,8 @@ class PecronMonitor:
                 self.ha_bridge = HomeAssistantBridge(ha_config, self.devices)
                 self.ha_bridge.command_callback = self._ha_command
                 self.ha_bridge.connect()
+
+        self._run_init_rules()
 
         log.info("Monitoring started (polling every %ds)", poll_interval)
 

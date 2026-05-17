@@ -1,6 +1,6 @@
 # Pecron Battery Monitor
 
-**v0.7.11** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
+**v0.7.12** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
 
 Monitor and control Pecron portable power stations from the command line — no phone app required.
 
@@ -130,10 +130,15 @@ alerts:
     bot_token: "your-bot-token"
     chat_id: "your-chat-id"
 
+rule_state:
+  initial_state: normal
+  # path: ~/.pecron-monitor-rules.json
+
 rules:
   - name: "Low battery — turn off AC"
     condition:
       battery_below: 10
+      state: normal        # Optional: only fires while persisted rule state is "normal"
     action:
       set_ac: false
     cooldown_minutes: 30
@@ -169,8 +174,22 @@ restore_outputs_after_shutdown:
 | `input_power_below` | `5` — no solar/charging input |
 | `input_power_above` | `100` — charging detected |
 | `schedule` | `"00:00"` — time-based (24h format) |
+| `init` | `true` — fires once when the service starts |
+| `state` | `"normal"` — only evaluate this rule in one state |
+| `states` | `["normal", "peak"]` — only evaluate this rule in any listed state |
 
-Actions: `set_ac`, `set_dc`, `set_ups` (true/false)
+Actions: `set_ac`, `set_dc`, `set_ups` (true/false), `set_state`, `run_command`
+
+Rule state is a single persisted string. Set the initial value with
+`rule_state.initial_state`; by default state is saved at
+`~/.pecron-monitor-rules.json` and survives service restarts. Use `set_state` to
+transition between states.
+
+`run_command` executes an external command without a shell. Provide either an
+argv list or a string that can be split like a shell command. The monitor sends
+JSON on stdin containing the rule name, current state, device key, target device
+key, battery percent, voltage, and raw telemetry. Use `timeout_seconds` on the
+action to override the 30s default.
 
 ### Restore Outputs After Low-Battery Shutdown
 

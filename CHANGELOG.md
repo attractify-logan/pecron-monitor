@@ -5,6 +5,11 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
+## [0.7.12] - 2026-05-17
+
+### Added
+- **Rules engine state and init/external-command actions** (#56). Rules can now gate on persisted `state` / `states`, fire once at service startup via `init`, transition state with `set_state`, and run external commands with rule/device telemetry JSON on stdin via `run_command`. State is persisted to `~/.pecron-monitor-rules.json` by default, configurable with `rule_state.path` or `PECRON_RULE_STATE_PATH`.
+
 ## [0.7.11] - 2026-05-17
 
 ### Added

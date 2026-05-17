@@ -360,6 +360,10 @@ def setup_wizard(auto=False):
             "mqtt_password": ha_pw,
             "discovery_prefix": "homeassistant",
         },
+        "rule_state": {
+            "initial_state": "default",
+            "_comment": "Persisted rules-engine state. Add path to override ~/.pecron-monitor-rules.json.",
+        },
         "rules": [
             {
                 "name": "Low battery — turn off AC",
