@@ -1,6 +1,6 @@
 # Pecron Battery Monitor
 
-**v0.7.10** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
+**v0.7.11** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
 
 Monitor and control Pecron portable power stations from the command line — no phone app required.
 
@@ -137,6 +137,15 @@ rules:
     action:
       set_ac: false
     cooldown_minutes: 30
+
+restore_outputs_after_shutdown:
+  enabled: false
+  shutdown_threshold_pct: 10
+  shutdown_threshold_voltage: null  # Optional, e.g. 48.0 for voltage-based low-battery detection
+  minimum_offline_seconds: 120
+  retry_interval_seconds: 30
+  retry_timeout_seconds: 600
+  snapshot_max_age_seconds: 86400
 ```
 
 > **`poll_interval` floor.** Pecron's cloud rate-limits per-account at roughly 1280 polls/day (issue #29). The monitor refuses to use cloud polling below 63s and warns between 63 and 69s. Below 63s the cap trips daily around 23:00 UTC with `code 4026 'Insufficient resources'`. The default of 70s leaves comfortable margin. Local/offline mode (`--local`) is not subject to this cloud quota and may use faster polling for LAN/BLE monitoring. Raise cloud polling further if you're seeing 4026 in your logs.
@@ -155,11 +164,24 @@ rules:
 |-----------|---------|
 | `battery_below` | `10` — fires at or below 10% |
 | `battery_above` | `95` — fires at or above 95% |
+| `voltage_below` | `48.0` — fires at or below 48.0V |
+| `voltage_above` | `54.0` — fires at or above 54.0V |
 | `input_power_below` | `5` — no solar/charging input |
 | `input_power_above` | `100` — charging detected |
 | `schedule` | `"00:00"` — time-based (24h format) |
 
 Actions: `set_ac`, `set_dc`, `set_ups` (true/false)
+
+### Restore Outputs After Low-Battery Shutdown
+
+`restore_outputs_after_shutdown` is opt-in. When enabled, the monitor snapshots
+AC/DC switch state if the device goes offline at or below
+`shutdown_threshold_pct`. If SoC drifts on your LFP pack, set
+`shutdown_threshold_voltage` as an additional low-battery detector; either the
+percentage threshold or the voltage threshold can trigger the snapshot. When the
+unit later comes back online after `minimum_offline_seconds`, the monitor retries
+the saved AC/DC commands until telemetry confirms the switches match or
+`retry_timeout_seconds` elapses.
 
 ## Offline Mode
 

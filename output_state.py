@@ -1,10 +1,10 @@
 """Snapshot persistence for the restore-outputs-after-shutdown feature (#59).
 
-When a device transitions offline at low SoC (likely a low-battery shutdown),
-the monitor snapshots the user's current AC/DC switch state to disk. When the
-device later transitions back online, the snapshot is loaded and the worker
-re-applies the previous state. The on-disk format outlives monitor restarts
-so a restart during the offline window doesn't lose the snapshot.
+When a device transitions offline at low SoC or low voltage (likely a
+low-battery shutdown), the monitor snapshots the user's current AC/DC switch
+state to disk. When the device later transitions back online, the snapshot is
+loaded and the worker re-applies the previous state. The on-disk format outlives
+monitor restarts so a restart during the offline window doesn't lose the snapshot.
 
 Storage: a single JSON file at `~/.pecron-monitor-state.json` (override via
 `PECRON_STATE_PATH` env for tests). Schema:
@@ -14,7 +14,8 @@ Storage: a single JSON file at `~/.pecron-monitor-state.json` (override via
         "<device_key>": {
           "ac_on": bool,
           "dc_on": bool,
-          "soc_at_offline": int,
+          "soc_at_offline": int | null,
+          "voltage_at_offline": float | null,
           "snapshotted_at": "<ISO8601 UTC>"
         },
         ...
@@ -50,15 +51,25 @@ def _state_path() -> Path:
 class OutputSnapshot:
     ac_on: bool
     dc_on: bool
-    soc_at_offline: int
+    soc_at_offline: Optional[int]
     snapshotted_at: str  # ISO8601 UTC
+    voltage_at_offline: Optional[float] = None
 
     @classmethod
-    def now(cls, ac_on: bool, dc_on: bool, soc_at_offline: int) -> "OutputSnapshot":
+    def now(
+        cls,
+        ac_on: bool,
+        dc_on: bool,
+        soc_at_offline: Optional[int],
+        voltage_at_offline: Optional[float] = None,
+    ) -> "OutputSnapshot":
         return cls(
             ac_on=bool(ac_on),
             dc_on=bool(dc_on),
-            soc_at_offline=int(soc_at_offline),
+            soc_at_offline=int(soc_at_offline) if soc_at_offline is not None else None,
+            voltage_at_offline=(
+                float(voltage_at_offline) if voltage_at_offline is not None else None
+            ),
             snapshotted_at=datetime.now(timezone.utc).isoformat(),
         )
 

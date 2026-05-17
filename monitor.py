@@ -1222,6 +1222,16 @@ class PecronMonitor:
                     if battery_pct < 0:
                         continue
                     triggered = battery_pct >= condition["battery_above"]
+                elif "voltage_below" in condition:
+                    voltage_now = self._extract_voltage(kv)
+                    if voltage_now is None:
+                        continue
+                    triggered = voltage_now <= float(condition["voltage_below"])
+                elif "voltage_above" in condition:
+                    voltage_now = self._extract_voltage(kv)
+                    if voltage_now is None:
+                        continue
+                    triggered = voltage_now >= float(condition["voltage_above"])
                 elif "input_power_below" in condition:
                     triggered = (
                         int(kv.get("total_input_power", 0)) <= condition["input_power_below"]
@@ -1492,13 +1502,28 @@ class PecronMonitor:
                 pass
         return None
 
+    def _extract_voltage(self, kv: dict):
+        """Pull battery voltage from kv. Returns None for missing/invalid values."""
+        for value in (kv.get("voltage"), _get_kv(kv, SENSOR_FIELDS["voltage"], 0)):
+            try:
+                voltage = float(value)
+            except (TypeError, ValueError):
+                continue
+            if voltage > 0:
+                return voltage
+        return None
+
     def _restore_cfg(self) -> dict:
         return self.config.get("restore_outputs_after_shutdown", {}) or {}
 
     def _on_device_offline(self, device_key: str):
-        """Called when a `is now offline` event arrives. Snapshots the user's
-        current AC/DC switch state to disk if it looks like a low-battery
-        shutdown (SoC <= configured threshold)."""
+        """Called when a `is now offline` event arrives.
+
+        Snapshot the user's current AC/DC switch state to disk if telemetry
+        indicates a low-battery shutdown. Percentage remains the default
+        threshold; voltage can be configured for LFP packs whose SoC estimate
+        drifts near empty.
+        """
         now = time.time()
         self._last_offline_at[device_key] = now
         log.info("Device %s is now offline", device_key)
@@ -1507,22 +1532,35 @@ class PecronMonitor:
         if not cfg.get("enabled", False):
             return
 
-        threshold = int(cfg.get("shutdown_threshold_pct", 10))
         kv = self.latest_data.get(device_key, {})
         soc = self._extract_soc(kv)
-        if soc is None:
-            log.debug(
-                "No SoC observation for %s at offline transition; skipping snapshot", device_key
-            )
-            return
-        if soc > threshold:
-            log.debug(
-                "Device %s went offline at SoC=%d%% (>%d%% threshold); not a "
-                "low-battery shutdown — skipping snapshot.",
-                device_key,
-                soc,
-                threshold,
-            )
+        voltage = self._extract_voltage(kv)
+        threshold_pct = int(cfg.get("shutdown_threshold_pct", 10))
+        threshold_voltage = cfg.get("shutdown_threshold_voltage")
+        if threshold_voltage is not None:
+            threshold_voltage = float(threshold_voltage)
+
+        pct_crossed = soc is not None and soc <= threshold_pct
+        voltage_crossed = (
+            threshold_voltage is not None and voltage is not None and voltage <= threshold_voltage
+        )
+        if not pct_crossed and not voltage_crossed:
+            if soc is None and (threshold_voltage is None or voltage is None):
+                log.debug(
+                    "No usable SoC/voltage observation for %s at offline transition; "
+                    "skipping snapshot",
+                    device_key,
+                )
+            else:
+                log.debug(
+                    "Device %s went offline at SoC=%s%% voltage=%sV; thresholds "
+                    "are SoC<=%d%% voltage<=%sV; skipping snapshot.",
+                    device_key,
+                    soc if soc is not None else "unknown",
+                    f"{voltage:.1f}" if voltage is not None else "unknown",
+                    threshold_pct,
+                    threshold_voltage if threshold_voltage is not None else "disabled",
+                )
             return
 
         ac_on = self._coerce_switch(kv.get("ac_switch_hm"))
@@ -1534,6 +1572,7 @@ class PecronMonitor:
             ac_on=bool(ac_on) if ac_on is not None else False,
             dc_on=bool(dc_on) if dc_on is not None else False,
             soc_at_offline=soc,
+            voltage_at_offline=voltage,
         )
         try:
             output_state.save(device_key, snap)
@@ -1541,9 +1580,11 @@ class PecronMonitor:
             log.warning("Could not persist output snapshot for %s: %s", device_key, e)
             return
         log.info(
-            "Snapshotted output state for %s for shutdown-restore (SoC=%d%%, AC=%s, DC=%s)",
+            "Snapshotted output state for %s for shutdown-restore "
+            "(SoC=%s%%, voltage=%sV, AC=%s, DC=%s)",
             device_key,
-            soc,
+            soc if soc is not None else "unknown",
+            f"{voltage:.1f}" if voltage is not None else "unknown",
             ac_on,
             dc_on,
         )

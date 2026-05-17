@@ -65,6 +65,19 @@ class TestOutputStatePersistence:
         assert loaded.dc_on is False
         assert loaded.soc_at_offline == 3
 
+    def test_save_and_load_round_trip_with_voltage(self, tmp_state_path):
+        snap = output_state.OutputSnapshot.now(
+            ac_on=True,
+            dc_on=False,
+            soc_at_offline=None,
+            voltage_at_offline=47.8,
+        )
+        output_state.save("DK1", snap)
+        loaded = output_state.get("DK1")
+        assert loaded is not None
+        assert loaded.soc_at_offline is None
+        assert loaded.voltage_at_offline == 47.8
+
     def test_save_overwrites_same_device(self, tmp_state_path):
         output_state.save("DK", output_state.OutputSnapshot.now(True, True, 5))
         output_state.save("DK", output_state.OutputSnapshot.now(False, False, 1))
@@ -157,6 +170,55 @@ class TestOnDeviceOffline:
         # Manual unplug at 50% — not a low-battery shutdown.
         m = _make_monitor(restore_cfg={"enabled": True, "shutdown_threshold_pct": 10})
         m.latest_data["DK"] = {"battery_percentage": 50, "ac_switch_hm": True}
+        m._on_device_offline("DK")
+        assert output_state.get("DK") is None
+
+    def test_voltage_threshold_snapshots_when_soc_is_not_low(self, tmp_state_path):
+        m = _make_monitor(
+            restore_cfg={
+                "enabled": True,
+                "shutdown_threshold_pct": 10,
+                "shutdown_threshold_voltage": 48.0,
+            }
+        )
+        m.latest_data["DK"] = {
+            "battery_percentage": 50,
+            "voltage": 47.8,
+            "ac_switch_hm": True,
+            "dc_switch_hm": False,
+        }
+        m._on_device_offline("DK")
+        snap = output_state.get("DK")
+        assert snap is not None
+        assert snap.soc_at_offline == 50
+        assert snap.voltage_at_offline == 47.8
+
+    def test_voltage_threshold_snapshots_without_soc(self, tmp_state_path):
+        m = _make_monitor(restore_cfg={"enabled": True, "shutdown_threshold_voltage": 48.0})
+        m.latest_data["DK"] = {
+            "voltage": 47.8,
+            "ac_switch_hm": True,
+            "dc_switch_hm": False,
+        }
+        m._on_device_offline("DK")
+        snap = output_state.get("DK")
+        assert snap is not None
+        assert snap.soc_at_offline is None
+        assert snap.voltage_at_offline == 47.8
+
+    def test_voltage_above_threshold_no_snapshot(self, tmp_state_path):
+        m = _make_monitor(
+            restore_cfg={
+                "enabled": True,
+                "shutdown_threshold_pct": 10,
+                "shutdown_threshold_voltage": 48.0,
+            }
+        )
+        m.latest_data["DK"] = {
+            "battery_percentage": 50,
+            "voltage": 48.2,
+            "ac_switch_hm": True,
+        }
         m._on_device_offline("DK")
         assert output_state.get("DK") is None
 

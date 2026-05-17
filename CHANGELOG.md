@@ -5,6 +5,11 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
+## [0.7.11] - 2026-05-17
+
+### Added
+- **Voltage-based automation and shutdown-restore triggers** (#57, partial #56). Rules now support `voltage_below` and `voltage_above` conditions, and `restore_outputs_after_shutdown` can use optional `shutdown_threshold_voltage` in addition to the existing SoC threshold. This lets LFP users trigger low-battery behavior from pack voltage when SoC has drifted out of calibration.
+
 ## [0.7.10] - 2026-05-17
 
 ### Added

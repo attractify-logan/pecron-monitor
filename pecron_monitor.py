@@ -20,7 +20,7 @@ Usage:
     pecron-monitor --homeassistant # Start with Home Assistant MQTT bridge
 """
 
-__version__ = "0.7.10"
+__version__ = "0.7.11"
 
 import argparse
 import json

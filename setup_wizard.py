@@ -372,14 +372,17 @@ def setup_wizard(auto=False):
         "restore_outputs_after_shutdown": {
             "enabled": False,
             "shutdown_threshold_pct": 10,
+            "shutdown_threshold_voltage": None,
             "minimum_offline_seconds": 120,
             "retry_interval_seconds": 30,
             "retry_timeout_seconds": 600,
             "snapshot_max_age_seconds": 86400,
             "_comment": (
-                "When a device transitions offline at low SoC, snapshot AC/DC switch "
-                "state. When it later comes back online (e.g. mains restored after a "
-                "low-battery shutdown), restore the previous switches. See issue #59. "
+                "When a device transitions offline at low SoC or low voltage, snapshot "
+                "AC/DC switch state. When it later comes back online (e.g. mains "
+                "restored after a low-battery shutdown), restore the previous switches. "
+                "Set shutdown_threshold_voltage to a pack voltage such as 48.0 if SoC "
+                "drift makes percentage unreliable near empty. See issue #59/#57. "
                 "Set enabled: true to opt in; defaults are conservative."
             ),
         },
