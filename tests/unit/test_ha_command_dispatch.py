@@ -33,14 +33,29 @@ def make_monitor():
     layer up.
     """
     config = {
-        "email": "x", "password": "x", "region": "na",
-        "devices": [{"product_key": "pk", "device_key": "dk0", "name": "E3800",
-                     "lan_ip": "10.0.0.1", "auth_key": FAKE_AUTH}],
+        "email": "x",
+        "password": "x",
+        "region": "na",
+        "devices": [
+            {
+                "product_key": "pk",
+                "device_key": "dk0",
+                "name": "E3800",
+                "lan_ip": "10.0.0.1",
+                "auth_key": FAKE_AUTH,
+            }
+        ],
     }
     m = PecronMonitor(config)
-    m.devices = [{"product_key": "pk", "device_key": "dk0",
-                  "device_name": "E3800", "product_name": "E3800",
-                  "controls": {}}]
+    m.devices = [
+        {
+            "product_key": "pk",
+            "device_key": "dk0",
+            "device_name": "E3800",
+            "product_name": "E3800",
+            "controls": {},
+        }
+    ]
     m.send_bool_control = MagicMock()
     return m
 
@@ -106,10 +121,14 @@ class TestHaCommandDispatch(unittest.TestCase):
             m._ha_command("dk0", "ac", True)
         finally:
             logger.removeHandler(handler)
-        warn_records = [r for r in records if r.levelno >= logging.WARNING
-                        and "#54" in r.getMessage()]
-        self.assertEqual(warn_records, [],
-                         f"unexpected WARN on known slug: {[r.getMessage() for r in warn_records]}")
+        warn_records = [
+            r for r in records if r.levelno >= logging.WARNING and "#54" in r.getMessage()
+        ]
+        self.assertEqual(
+            warn_records,
+            [],
+            f"unexpected WARN on known slug: {[r.getMessage() for r in warn_records]}",
+        )
         m.send_bool_control.assert_called_once_with("dk0", "ac_switch_hm", True)
 
 
@@ -156,7 +175,7 @@ class TestHaCommandMapMatchesDiscovery(unittest.TestCase):
             with self.subTest(slug=slug):
                 m = make_monitor()
                 m._ha_command("dk0", slug, True)
-                m.send_bool_control.assert_called_once(),  # not silently dropped
+                (m.send_bool_control.assert_called_once(),)  # not silently dropped
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ log = logging.getLogger("pecron")
 def _scan_lan_for_pecron(subnet: str = None, timeout: float = 0.3) -> list:
     """Scan local network for devices with TCP port 6607 open."""
     import ipaddress
+
     results = []
     if not subnet:
         # Try to detect subnet from default interface
@@ -56,10 +57,12 @@ def _setup_lan_discovery(devices: list, token: str, region: dict) -> list:
         dk = device["device_key"]
         if not device.get("auth_key"):
             try:
-                print(f"  Fetching encryption key for {device.get('name', dk)}...", end="", flush=True)
+                print(
+                    f"  Fetching encryption key for {device.get('name', dk)}...", end="", flush=True
+                )
                 auth_key = get_auth_key(token, region, device["product_key"], dk)
                 device["auth_key"] = auth_key
-                print(f" ✅")
+                print(" ✅")
             except Exception as e:
                 print(f" ❌ ({e})")
 
@@ -81,7 +84,9 @@ def _setup_lan_discovery(devices: list, token: str, region: dict) -> list:
     for device in devices:
         if device.get("lan_ip"):
             continue
-        manual_ip = input(f"  Enter LAN IP for {device.get('name', device['device_key'])} (or Enter to skip): ").strip()
+        manual_ip = input(
+            f"  Enter LAN IP for {device.get('name', device['device_key'])} (or Enter to skip): "
+        ).strip()
         if manual_ip:
             device["lan_ip"] = manual_ip
 
@@ -89,8 +94,8 @@ def _setup_lan_discovery(devices: list, token: str, region: dict) -> list:
     if unmatched:
         names = ", ".join(d.get("name", d["device_key"]) for d in unmatched)
         print(f"  ℹ️  Not found on LAN: {names}")
-        print(f"     These will use cloud MQTT only (or configure lan_ip in config.yaml later)")
-    
+        print("     These will use cloud MQTT only (or configure lan_ip in config.yaml later)")
+
     print("  LAN discovery complete!")
     return devices
 
@@ -177,6 +182,7 @@ def discover_devices(devices_config: list, timeout: float = 0.5) -> dict:
             log.debug("Trying handshake for device %s at %s...", dk, ip)
             try:
                 import time
+
                 time.sleep(0.1)  # Small delay between attempts to avoid overwhelming device
                 transport = LocalTransport(ip, auth_key, timeout=3.0)
                 if transport.connect():

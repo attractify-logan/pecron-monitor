@@ -40,7 +40,6 @@ CONTROLS_ENUM = {
 
 
 class TestSendControlReadback(unittest.TestCase):
-
     def test_returns_true_when_readback_confirms_bool_write(self):
         """Standard happy path: device's post-write state matches the request."""
         t = make_transport(CONTROLS_BOOL)
@@ -202,7 +201,6 @@ class TestVerifyOptOut(unittest.TestCase):
 
 
 class TestControlValuesEqual(unittest.TestCase):
-
     def test_bool_true_matches_true(self):
         self.assertTrue(_control_values_equal(True, True, "BOOL"))
 

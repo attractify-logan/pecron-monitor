@@ -14,11 +14,8 @@ via these synthetic tests rather than real device drains.
 
 import json
 import logging
-import os
-import threading
 import time
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -91,13 +88,21 @@ class TestOutputStatePersistence:
         assert output_state.load_all() == {}
 
     def test_load_skips_malformed_entry(self, tmp_state_path):
-        tmp_state_path.write_text(json.dumps({
-            "snapshots": {
-                "GOOD": {"ac_on": True, "dc_on": False,
-                         "soc_at_offline": 5, "snapshotted_at": "2026-05-03T00:00:00+00:00"},
-                "BAD": {"ac_on": True},  # missing fields
-            }
-        }))
+        tmp_state_path.write_text(
+            json.dumps(
+                {
+                    "snapshots": {
+                        "GOOD": {
+                            "ac_on": True,
+                            "dc_on": False,
+                            "soc_at_offline": 5,
+                            "snapshotted_at": "2026-05-03T00:00:00+00:00",
+                        },
+                        "BAD": {"ac_on": True},  # missing fields
+                    }
+                }
+            )
+        )
         snaps = output_state.load_all()
         assert "GOOD" in snaps
         assert "BAD" not in snaps
@@ -112,7 +117,9 @@ class TestOutputStatePersistence:
 
     def test_age_seconds_for_malformed_timestamp(self, tmp_state_path):
         snap = output_state.OutputSnapshot(
-            ac_on=True, dc_on=False, soc_at_offline=5,
+            ac_on=True,
+            dc_on=False,
+            soc_at_offline=5,
             snapshotted_at="not-a-date",
         )
         assert snap.age_seconds() == float("inf")
@@ -126,7 +133,8 @@ class TestOnDeviceOffline:
         m = _make_monitor(restore_cfg={"enabled": False})
         m.latest_data["DK"] = {
             "battery_percentage": 2,
-            "ac_switch_hm": True, "dc_switch_hm": False,
+            "ac_switch_hm": True,
+            "dc_switch_hm": False,
         }
         m._on_device_offline("DK")
         assert output_state.get("DK") is None
@@ -135,7 +143,8 @@ class TestOnDeviceOffline:
         m = _make_monitor(restore_cfg={"enabled": True, "shutdown_threshold_pct": 10})
         m.latest_data["DK"] = {
             "battery_percentage": 2,
-            "ac_switch_hm": True, "dc_switch_hm": False,
+            "ac_switch_hm": True,
+            "dc_switch_hm": False,
         }
         m._on_device_offline("DK")
         snap = output_state.get("DK")
@@ -161,7 +170,8 @@ class TestOnDeviceOffline:
         m = _make_monitor(restore_cfg={"enabled": True, "shutdown_threshold_pct": 10})
         m.latest_data["DK"] = {
             "host_packet_data_jdb": {"host_packet_electric_percentage": 3},
-            "ac_switch_hm": True, "dc_switch_hm": True,
+            "ac_switch_hm": True,
+            "dc_switch_hm": True,
         }
         m._on_device_offline("DK")
         snap = output_state.get("DK")
@@ -173,7 +183,8 @@ class TestOnDeviceOffline:
         m = _make_monitor(restore_cfg={"enabled": True, "shutdown_threshold_pct": 10})
         m.latest_data["DK"] = {
             "battery_percentage": 2,
-            "ac_switch_hm": "ON", "dc_switch_hm": "OFF",
+            "ac_switch_hm": "ON",
+            "dc_switch_hm": "OFF",
         }
         m._on_device_offline("DK")
         snap = output_state.get("DK")
@@ -181,7 +192,9 @@ class TestOnDeviceOffline:
         assert snap.dc_on is False
 
     def test_records_offline_timestamp(self, tmp_state_path):
-        m = _make_monitor(restore_cfg={"enabled": False})  # disabled is fine — we test the timestamp
+        m = _make_monitor(
+            restore_cfg={"enabled": False}
+        )  # disabled is fine — we test the timestamp
         before = time.time()
         m._on_device_offline("DK")
         assert before <= m._last_offline_at["DK"] <= time.time()
@@ -217,7 +230,9 @@ class TestOnDeviceOnline:
     def test_stale_snapshot_discarded(self, tmp_state_path):
         m = _make_monitor(restore_cfg={"enabled": True, "snapshot_max_age_seconds": 60})
         snap = output_state.OutputSnapshot(
-            ac_on=True, dc_on=False, soc_at_offline=2,
+            ac_on=True,
+            dc_on=False,
+            soc_at_offline=2,
             snapshotted_at="2020-01-01T00:00:00+00:00",  # ancient
         )
         output_state.save("DK", snap)
@@ -226,9 +241,14 @@ class TestOnDeviceOnline:
         assert output_state.get("DK") is None  # cleared
 
     def test_long_offline_with_snapshot_spawns_worker(self, tmp_state_path):
-        m = _make_monitor(restore_cfg={"enabled": True, "minimum_offline_seconds": 120,
-                                       "retry_interval_seconds": 1,
-                                       "retry_timeout_seconds": 5})
+        m = _make_monitor(
+            restore_cfg={
+                "enabled": True,
+                "minimum_offline_seconds": 120,
+                "retry_interval_seconds": 1,
+                "retry_timeout_seconds": 5,
+            }
+        )
         output_state.save("DK", output_state.OutputSnapshot.now(True, False, 2))
         m._last_offline_at["DK"] = time.time() - 600  # 10 min ago
 
@@ -247,9 +267,14 @@ class TestOnDeviceOnline:
     def test_worker_dedup_on_duplicate_online(self, tmp_state_path):
         # If two online events arrive in rapid succession (cloud flap), only
         # one worker should be running for the device.
-        m = _make_monitor(restore_cfg={"enabled": True, "minimum_offline_seconds": 1,
-                                       "retry_interval_seconds": 10,
-                                       "retry_timeout_seconds": 30})
+        m = _make_monitor(
+            restore_cfg={
+                "enabled": True,
+                "minimum_offline_seconds": 1,
+                "retry_interval_seconds": 10,
+                "retry_timeout_seconds": 30,
+            }
+        )
         output_state.save("DK", output_state.OutputSnapshot.now(True, False, 2))
         m._last_offline_at["DK"] = time.time() - 10
         m.latest_data["DK"] = {"ac_switch_hm": False, "dc_switch_hm": False}
@@ -269,8 +294,7 @@ class TestOnDeviceOnline:
 
 class TestRestoreWorker:
     def test_already_in_target_state_clears_snapshot(self, tmp_state_path):
-        m = _make_monitor(restore_cfg={"retry_interval_seconds": 1,
-                                       "retry_timeout_seconds": 5})
+        m = _make_monitor(restore_cfg={"retry_interval_seconds": 1, "retry_timeout_seconds": 5})
         output_state.save("DK", output_state.OutputSnapshot.now(True, False, 2))
         m.latest_data["DK"] = {"ac_switch_hm": True, "dc_switch_hm": False}
         m._restore_outputs_worker("DK", target_ac=True, target_dc=False)
@@ -281,8 +305,7 @@ class TestRestoreWorker:
     def test_issues_set_ac_when_state_differs(self, tmp_state_path):
         # Latest data shows AC=False; target is True. After the first iteration,
         # we update latest_data to True so the second iteration exits.
-        m = _make_monitor(restore_cfg={"retry_interval_seconds": 0.05,
-                                       "retry_timeout_seconds": 2})
+        m = _make_monitor(restore_cfg={"retry_interval_seconds": 0.05, "retry_timeout_seconds": 2})
         output_state.save("DK", output_state.OutputSnapshot.now(True, False, 2))
         m.latest_data["DK"] = {"ac_switch_hm": False, "dc_switch_hm": False}
 
@@ -291,6 +314,7 @@ class TestRestoreWorker:
         def _flip_ac(dk, on):
             m.latest_data[dk]["ac_switch_hm"] = on
             return True
+
         m.set_ac = MagicMock(side_effect=_flip_ac)
 
         m._restore_outputs_worker("DK", target_ac=True, target_dc=False)
@@ -299,13 +323,13 @@ class TestRestoreWorker:
         assert output_state.get("DK") is None
 
     def test_issues_set_dc_when_state_differs(self, tmp_state_path):
-        m = _make_monitor(restore_cfg={"retry_interval_seconds": 0.05,
-                                       "retry_timeout_seconds": 2})
+        m = _make_monitor(restore_cfg={"retry_interval_seconds": 0.05, "retry_timeout_seconds": 2})
         m.latest_data["DK"] = {"ac_switch_hm": False, "dc_switch_hm": False}
 
         def _flip_dc(dk, on):
             m.latest_data[dk]["dc_switch_hm"] = on
             return True
+
         m.set_dc = MagicMock(side_effect=_flip_dc)
 
         m._restore_outputs_worker("DK", target_ac=False, target_dc=True)
@@ -315,8 +339,9 @@ class TestRestoreWorker:
         # set_ac always succeeds at the API layer but latest_data never
         # reflects the change (mimics the LCD-at-0% silent rejection). After
         # timeout, snapshot should be cleared and an ERROR logged.
-        m = _make_monitor(restore_cfg={"retry_interval_seconds": 0.05,
-                                       "retry_timeout_seconds": 0.2})
+        m = _make_monitor(
+            restore_cfg={"retry_interval_seconds": 0.05, "retry_timeout_seconds": 0.2}
+        )
         output_state.save("DK", output_state.OutputSnapshot.now(True, False, 2))
         m.latest_data["DK"] = {"ac_switch_hm": False, "dc_switch_hm": False}
         # set_ac is a no-op (default MagicMock) — latest_data stays False.
@@ -327,8 +352,7 @@ class TestRestoreWorker:
         assert any("timed out" in r.message for r in caplog.records)
 
     def test_monitor_shutdown_aborts_worker(self, tmp_state_path):
-        m = _make_monitor(restore_cfg={"retry_interval_seconds": 10,
-                                       "retry_timeout_seconds": 60})
+        m = _make_monitor(restore_cfg={"retry_interval_seconds": 10, "retry_timeout_seconds": 60})
         m.latest_data["DK"] = {"ac_switch_hm": False, "dc_switch_hm": False}
         m._running = False  # simulate shutdown before worker starts
         m._restore_outputs_worker("DK", target_ac=True, target_dc=False)

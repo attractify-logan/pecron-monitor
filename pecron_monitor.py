@@ -4,23 +4,23 @@ Pecron Battery Monitor & Controller — real-time monitoring and control
 via local TCP (LAN) with cloud MQTT fallback. Works with any Pecron power station.
 
 Usage:
-    python pecron_monitor.py --setup        # Interactive setup wizard
-    python pecron_monitor.py                # Start monitoring
-    python pecron_monitor.py --local        # Run in offline/local-only mode (no cloud)
-    python pecron_monitor.py --status       # One-shot status check
-    python pecron_monitor.py --ac on        # Turn AC output on
-    python pecron_monitor.py --ac off       # Turn AC output off
-    python pecron_monitor.py --dc on        # Turn DC output on
-    python pecron_monitor.py --dc off       # Turn DC output off
-    python pecron_monitor.py --controls     # List all available controls for your model
-    python pecron_monitor.py --control ac_switch_hm on   # Set any control by code
-    python pecron_monitor.py --probe-control ac_discharge_power_hm --probe-max 20
+    pecron-monitor --setup        # Interactive setup wizard
+    pecron-monitor                # Start monitoring
+    pecron-monitor --local        # Run in offline/local-only mode (no cloud)
+    pecron-monitor --status       # One-shot status check
+    pecron-monitor --ac on        # Turn AC output on
+    pecron-monitor --ac off       # Turn AC output off
+    pecron-monitor --dc on        # Turn DC output on
+    pecron-monitor --dc off       # Turn DC output off
+    pecron-monitor --controls     # List all available controls for your model
+    pecron-monitor --control ac_switch_hm on   # Set any control by code
+    pecron-monitor --probe-control ac_discharge_power_hm --probe-max 20
                                             # Probe valid values starting at 0
-    python pecron_monitor.py --raw          # Dump raw JSON from device
-    python pecron_monitor.py --homeassistant # Start with Home Assistant MQTT bridge
+    pecron-monitor --raw          # Dump raw JSON from device
+    pecron-monitor --homeassistant # Start with Home Assistant MQTT bridge
 """
 
-__version__ = "0.7.9"
+__version__ = "0.7.10"
 
 import argparse
 import json
@@ -46,38 +46,73 @@ def main():
     parser = argparse.ArgumentParser(description="Pecron Battery Monitor & Controller")
     parser.add_argument("--version", action="version", version=f"pecron-monitor {__version__}")
     parser.add_argument("--setup", action="store_true", help="Run setup wizard")
-    parser.add_argument("--auto", action="store_true", help="Auto mode for setup (reads PECRON_EMAIL, PECRON_PASSWORD, PECRON_REGION from env)")
-    parser.add_argument("--local", action="store_true",
-                        help="Run in offline/local-only mode (no cloud, uses cached config)")
-    parser.add_argument("--nolocal", action="store_true",
-                        help="Skip setting up local TCP/BLE transports in authenticate()")
-    parser.add_argument("--no-ble", action="store_true",
-                        help="Disable Bluetooth (BLE) transport — use WiFi TCP or cloud only")
-    parser.add_argument("--rest-only", action="store_true",
-                        help="Use REST API only (disable MQTT and local transports)")
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="Auto mode for setup (reads PECRON_EMAIL, PECRON_PASSWORD, PECRON_REGION from env)",
+    )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Run in offline/local-only mode (no cloud, uses cached config)",
+    )
+    parser.add_argument(
+        "--nolocal",
+        action="store_true",
+        help="Skip setting up local TCP/BLE transports in authenticate()",
+    )
+    parser.add_argument(
+        "--no-ble",
+        action="store_true",
+        help="Disable Bluetooth (BLE) transport — use WiFi TCP or cloud only",
+    )
+    parser.add_argument(
+        "--rest-only",
+        action="store_true",
+        help="Use REST API only (disable MQTT and local transports)",
+    )
     parser.add_argument("--status", action="store_true", help="One-shot status check")
     parser.add_argument("--ac", choices=["on", "off"], help="Turn AC output on/off")
     parser.add_argument("--dc", choices=["on", "off"], help="Turn DC output on/off")
     parser.add_argument("--homeassistant", action="store_true", help="Enable HA MQTT bridge")
     parser.add_argument("--raw", action="store_true", help="Dump raw JSON data from device")
     parser.add_argument("--controls", action="store_true", help="List available controls from TSL")
-    parser.add_argument("--control", nargs=2, metavar=("CODE", "VALUE"),
-                        help="Set any control: --control ac_switch_hm true")
-    parser.add_argument("--probe-control", metavar="CODE",
-                        help="Probe contiguous supported values for a control, starting at 0")
-    parser.add_argument("--probe-min", type=int, default=0,
-                        help="Minimum probe value when using --probe-control (default: 0)")
-    parser.add_argument("--probe-max", type=int, default=255,
-                        help="Maximum probe value when using --probe-control (default: 255)")
-    parser.add_argument("--diagnose", action="store_true",
-                        help="Run diagnostics: verify device binding, show MQTT topics, wait for data")
+    parser.add_argument(
+        "--control",
+        nargs=2,
+        metavar=("CODE", "VALUE"),
+        help="Set any control: --control ac_switch_hm true",
+    )
+    parser.add_argument(
+        "--probe-control",
+        metavar="CODE",
+        help="Probe contiguous supported values for a control, starting at 0",
+    )
+    parser.add_argument(
+        "--probe-min",
+        type=int,
+        default=0,
+        help="Minimum probe value when using --probe-control (default: 0)",
+    )
+    parser.add_argument(
+        "--probe-max",
+        type=int,
+        default=255,
+        help="Maximum probe value when using --probe-control (default: 255)",
+    )
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Run diagnostics: verify device binding, show MQTT topics, wait for data",
+    )
     parser.add_argument("--config", type=str, default=str(CONFIG_PATH), help="Config file path")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging")
     args = parser.parse_args()
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S",
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
     )
 
     if args.setup:
@@ -87,7 +122,7 @@ def main():
     config_path = Path(args.config)
     if not config_path.exists():
         print(f"Config not found at {config_path}")
-        print("Run 'python pecron_monitor.py --setup' to create it.")
+        print("Run 'pecron-monitor --setup' to create it.")
         sys.exit(1)
 
     with open(config_path) as f:
@@ -115,7 +150,9 @@ def main():
                 tsl = DEFAULT_CONTROLS
             for code, info in sorted(tsl.items(), key=lambda x: x[1]["id"]):
                 rw = "RW" if "W" in info.get("access", "R").upper() else "RO"
-                print(f"  id={info['id']:3d}  {rw}  {info.get('type','?'):6s}  {code}  — {info.get('desc', '')}")
+                print(
+                    f"  id={info['id']:3d}  {rw}  {info.get('type', '?'):6s}  {code}  — {info.get('desc', '')}"
+                )
                 if info.get("type") == "ENUM" and code in ENUM_LABELS:
                     labels = ENUM_LABELS[code]
                     opts = "  ".join(f"{k}={v}" for k, v in sorted(labels.items()))
@@ -145,9 +182,11 @@ def main():
                 value = _get_kv(kv, field_paths, None)
                 if value is not None:
                     # Show the actual path(s) used
-                    path_str = str(field_paths) if isinstance(field_paths, (list, tuple)) else field_paths
+                    path_str = (
+                        str(field_paths) if isinstance(field_paths, (list, tuple)) else field_paths
+                    )
                     print(f"{field_name:<30} {str(value):<15} {path_str}")
-            
+
             # Print unknown fields not referenced by SENSOR_FIELDS
             def _collect_keys(p):
                 if isinstance(p, (list, tuple)):
@@ -239,8 +278,12 @@ def main():
             monitor.connect_mqtt()
             time.sleep(3)
 
-        print(f"Probing control '{args.probe_control}' from {args.probe_min} upward (max={args.probe_max})")
-        print(f"Mode: {'local-only' if args.local else ('cloud/remote (local skipped)' if args.nolocal else 'auto local+cloud')}")
+        print(
+            f"Probing control '{args.probe_control}' from {args.probe_min} upward (max={args.probe_max})"
+        )
+        print(
+            f"Mode: {'local-only' if args.local else ('cloud/remote (local skipped)' if args.nolocal else 'auto local+cloud')}"
+        )
 
         for device in monitor.devices:
             dk = device["device_key"]
@@ -257,7 +300,9 @@ def main():
             if result["reason"] == "max_reached":
                 print(f"  Stopped at: max probe value {args.probe_max}")
             else:
-                print(f"  Stopped at: {result['stop_value']} (reason={result['reason']}, readback={result['last_readback']})")
+                print(
+                    f"  Stopped at: {result['stop_value']} (reason={result['reason']}, readback={result['last_readback']})"
+                )
 
         if monitor.mqtt_client:
             monitor.mqtt_client.loop_stop()
@@ -265,7 +310,8 @@ def main():
         return
 
     if args.diagnose:
-        from cloud_api import verify_device, get_device_online_status
+        from cloud_api import verify_device
+
         print("\n🔍 Pecron Monitor Diagnostics\n")
         region = REGIONS[config["region"]]
 
@@ -300,7 +346,7 @@ def main():
                 print(f"   ✅ Device verified — API says: {api_name}")
                 if api_name != config_name:
                     print(f"   ⚠️  Name mismatch: config='{config_name}' vs API='{api_name}'")
-                    print(f"      This is cosmetic — the API controls the name shown.")
+                    print("      This is cosmetic — the API controls the name shown.")
 
                 # Show binding info
                 for key in ["deviceKey", "productKey", "deviceName", "mac", "online"]:
@@ -314,13 +360,15 @@ def main():
                     alt_info = verify_device(token_data["token"], region, cat_pk, dk)
                     if alt_info:
                         print(f"   ✅ Found under: {cat_name} (pk={cat_pk})")
-                        print(f"   → Update your config.yaml: product_key: \"{cat_pk}\"")
+                        print(f'   → Update your config.yaml: product_key: "{cat_pk}"')
                         found = True
                         break
                 if not found:
                     print(f"   ❌ Device key {dk} not found under ANY product.")
-                    print(f"   ⚠️  Double-check your device key from the Pecron app (Device Info → Device Key or Device Code).")
-                    print(f"      Should be 12 hex characters (MAC address) like AABBCCDDEEFF")
+                    print(
+                        "   ⚠️  Double-check your device key from the Pecron app (Device Info → Device Key or Device Code)."
+                    )
+                    print("      Should be 12 hex characters (MAC address) like AABBCCDDEEFF")
 
             # TSL
             tsl = get_product_tsl(token_data["token"], region, pk)
@@ -344,7 +392,7 @@ def main():
             if monitor.latest_data:
                 break
             if i % 3 == 2:
-                print(f"   Waiting... ({i+1}s)")
+                print(f"   Waiting... ({i + 1}s)")
 
         if monitor.latest_data:
             print("   ✅ Data received!")
@@ -354,7 +402,7 @@ def main():
                 if battery is not None:
                     print(f"   Battery: {battery}%")
                 else:
-                    print(f"   ⚠️  Battery field not found in response")
+                    print("   ⚠️  Battery field not found in response")
                     print(f"   Raw top-level keys: {list(kv.keys())}")
         else:
             print("   ❌ No data received after 15 seconds")
@@ -364,7 +412,7 @@ def main():
             print("   • Wrong product_key (try --setup to auto-detect)")
             print("   • Device WiFi module is sleeping (open Pecron app to wake it)")
             print("\n   Run with -v for detailed MQTT debug logs:")
-            print(f"   python3 pecron_monitor.py --diagnose -v")
+            print("   pecron-monitor --diagnose -v")
 
         if monitor.mqtt_client:
             monitor.mqtt_client.loop_stop()

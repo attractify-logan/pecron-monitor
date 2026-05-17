@@ -38,7 +38,6 @@ def _kv_with_voltage(value):
 
 
 class TestVoltageFilter(unittest.TestCase):
-
     def test_real_voltage_accepted(self):
         b = make_bridge()
         dk = "DEV1"
@@ -52,8 +51,9 @@ class TestVoltageFilter(unittest.TestCase):
         self.assertEqual(b._state_cache[dk]["voltage"], 53.1)
         # Second packet: voltage=0.0 (settings-only placeholder)
         b.publish_state(dk, _kv_with_voltage(0))
-        self.assertEqual(b._state_cache[dk]["voltage"], 53.1,
-                         "0.0V update must not clobber the cached 53.1V")
+        self.assertEqual(
+            b._state_cache[dk]["voltage"], 53.1, "0.0V update must not clobber the cached 53.1V"
+        )
 
     def test_initial_zero_voltage_leaves_cache_empty(self):
         """HA should show Unknown (no state topic send for voltage) rather than
@@ -61,8 +61,11 @@ class TestVoltageFilter(unittest.TestCase):
         b = make_bridge()
         dk = "DEV1"
         b.publish_state(dk, _kv_with_voltage(0))
-        self.assertNotIn("voltage", b._state_cache.get(dk, {}),
-                         "Initial 0.0V packet must not seed the cache at 0")
+        self.assertNotIn(
+            "voltage",
+            b._state_cache.get(dk, {}),
+            "Initial 0.0V packet must not seed the cache at 0",
+        )
 
     def test_subsequent_real_voltage_replaces_cached(self):
         """Normal voltage changes (52.4 → 52.9) must always update."""

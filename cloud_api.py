@@ -26,6 +26,7 @@ log = logging.getLogger("pecron")
 # Authentication
 # ===========================================================================
 
+
 def _make_auth_params(email: str, password: str, region: dict) -> dict:
     rand = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))
     md5 = hashlib.md5(rand.encode()).hexdigest().upper()
@@ -36,12 +37,16 @@ def _make_auth_params(email: str, password: str, region: dict) -> dict:
     sig_input = email + enc_pwd + rand + region["user_domain_secret"]
     signature = hashlib.sha256(sig_input.encode()).hexdigest()
     return {
-        "email": email, "pwd": enc_pwd, "random": rand,
-        "userDomain": region["user_domain"], "signature": signature,
+        "email": email,
+        "pwd": enc_pwd,
+        "random": rand,
+        "userDomain": region["user_domain"],
+        "signature": signature,
     }
 
 
-def login(email: str, password: str, region: dict) -> dict:
+def _do_login(email: str, password: str, region: dict) -> dict:
+    """Attempt one login against the given region config."""
     params = _make_auth_params(email, password, region)
     url = region["base_url"] + "/v2/enduser/enduserapi/emailPwdLogin"
     data = urllib.parse.urlencode(params).encode()
@@ -50,21 +55,62 @@ def login(email: str, password: str, region: dict) -> dict:
     with urllib.request.urlopen(req, timeout=15) as resp:
         body = json.loads(resp.read())
     if body.get("code") != 200:
-        raise RuntimeError(f"Login failed: {body.get('msg', body)}")
+        raise RuntimeError(f"Login failed (code {body.get('code')}): {body.get('msg', body)}")
     token_data = body["data"]["accessToken"]
     token = token_data["token"]
     jwt_parts = token.split(".")
     payload_b64 = jwt_parts[1] + "=" * (4 - len(jwt_parts[1]) % 4)
     jwt_payload = json.loads(base64.b64decode(payload_b64))
     return {
-        "token": token, "uid": jwt_payload["uid"],
+        "token": token,
+        "uid": jwt_payload["uid"],
         "expires_at": jwt_payload.get("exp", 0),
     }
+
+
+_DOMAIN_RETRY_CODES = {
+    5015,  # UserDomain does not exist.
+    5031,  # Email address is not registered on this domain.
+    5420,  # Signature verification failed for this domain secret.
+}
+
+
+def login(email: str, password: str, region: dict) -> dict:
+    """Log in to the Pecron/Quectel cloud.
+
+    Some NA accounts appear to be split across Pecron/Quectel domains. Try the
+    configured primary domain first, then retry once with the fallback domain
+    only for domain-related API failures.
+    """
+    try:
+        return _do_login(email, password, region)
+    except RuntimeError as primary_err:
+        fallback_domain = region.get("user_domain_fallback")
+        fallback_secret = region.get("user_domain_secret_fallback")
+        if not fallback_domain or not fallback_secret:
+            raise
+
+        err = str(primary_err)
+        if not any(f"code {code}" in err for code in _DOMAIN_RETRY_CODES):
+            raise
+
+        log.info(
+            "Primary domain login failed (%s); retrying with fallback domain %s",
+            primary_err,
+            fallback_domain,
+        )
+        fallback_region = {
+            **region,
+            "user_domain": fallback_domain,
+            "user_domain_secret": fallback_secret,
+        }
+        return _do_login(email, password, fallback_region)
 
 
 # ===========================================================================
 # Device discovery
 # ===========================================================================
+
 
 def get_product_catalog(token: str, region: dict) -> dict:
     url = region["base_url"] + "/v2/enduser/enduserapi/getProductList?pageNum=1&pageSize=100"
@@ -126,7 +172,8 @@ def get_product_tsl(token: str, region: dict, product_key: str) -> dict:
                 dtype = dt.get("type", dt) if isinstance(dt, dict) else str(dt)
                 access = prop.get("subType", prop.get("accessMode", "R"))
                 controls[prop["code"]] = {
-                    "id": prop["id"], "type": dtype,
+                    "id": prop["id"],
+                    "type": dtype,
                     "desc": prop.get("name", prop["code"]),
                     "access": access,
                 }
@@ -137,8 +184,10 @@ def get_product_tsl(token: str, region: dict, product_key: str) -> dict:
 
 
 def verify_device(token: str, region: dict, product_key: str, device_key: str) -> dict:
-    url = (region["base_url"] +
-           f"/v2/binding/enduserapi/getDeviceBindingInfo?pk={product_key}&dk={device_key}")
+    url = (
+        region["base_url"]
+        + f"/v2/binding/enduserapi/getDeviceBindingInfo?pk={product_key}&dk={device_key}"
+    )
     req = urllib.request.Request(url)
     req.add_header("Authorization", token)
     try:
@@ -153,8 +202,10 @@ def verify_device(token: str, region: dict, product_key: str, device_key: str) -
 
 def get_device_online_status(token: str, region: dict, product_key: str, device_key: str) -> dict:
     """Check if device is online via cloud API."""
-    url = (region["base_url"] +
-           f"/v2/binding/enduserapi/getDeviceOnlineStatus?pk={product_key}&dk={device_key}")
+    url = (
+        region["base_url"]
+        + f"/v2/binding/enduserapi/getDeviceOnlineStatus?pk={product_key}&dk={device_key}"
+    )
     req = urllib.request.Request(url)
     req.add_header("Authorization", token)
     try:
@@ -175,8 +226,7 @@ def get_device_properties_rest(token: str, region: dict, pk: str, dk: str) -> di
 
     Returns a kv dict compatible with _process_data().
     """
-    url = (region["base_url"] +
-           f"/v2/binding/enduserapi/getDeviceBusinessAttributes?pk={pk}&dk={dk}")
+    url = region["base_url"] + f"/v2/binding/enduserapi/getDeviceBusinessAttributes?pk={pk}&dk={dk}"
     req = urllib.request.Request(url)
     req.add_header("Authorization", token)
     try:
@@ -197,7 +247,9 @@ def get_device_properties_rest(token: str, region: dict, pk: str, dk: str) -> di
         kv = {}
         for item in tsl_info:
             code = item.get("resourceCode", "")
-            value = item.get("resourceValce", "") # Note: 'resourceValce' is correct per API response, not a typo
+            value = item.get(
+                "resourceValce", ""
+            )  # Note: 'resourceValce' is correct per API response, not a typo
             dtype = item.get("dataType", "string")
 
             if value == "":
@@ -247,7 +299,9 @@ def get_device_properties_rest(token: str, region: dict, pk: str, dk: str) -> di
 
             converted = _convert_value(value, dtype)
             kv[code] = converted
-            log.debug("code: %s value: %r (dtype=%s) -> kv[%s] = %r", code, value, dtype, code, converted)
+            log.debug(
+                "code: %s value: %r (dtype=%s) -> kv[%s] = %r", code, value, dtype, code, converted
+            )
 
         return kv
     except Exception as e:
@@ -311,22 +365,34 @@ def resolve_devices(config: dict, token: str, region: dict) -> list:
             # Fetch TSL for this product
             tsl = get_product_tsl(token, region, pk)
             api_name = info.get("productName", name)
-            devices.append({
-                "product_key": pk, "device_key": dk,
-                "device_name": api_name,
-                "product_name": api_name,
-                "controls": tsl or DEFAULT_CONTROLS,
-            })
+            devices.append(
+                {
+                    "product_key": pk,
+                    "device_key": dk,
+                    "device_name": api_name,
+                    "product_name": api_name,
+                    "controls": tsl or DEFAULT_CONTROLS,
+                }
+            )
             # Check online status
             online_info = get_device_online_status(token, region, pk, dk)
             online = online_info.get("online", online_info.get("value"))
             if online:
                 log.info("  ✅ %s (pk=%s, dk=%s) — ONLINE", api_name, pk, dk)
             else:
-                log.warning("  ⚠️  %s (pk=%s, dk=%s) — OFFLINE (device may not be connected to WiFi/internet)", api_name, pk, dk)
-                log.warning("     MQTT monitoring will not receive data until the device is online.")
+                log.warning(
+                    "  ⚠️  %s (pk=%s, dk=%s) — OFFLINE (device may not be connected to WiFi/internet)",
+                    api_name,
+                    pk,
+                    dk,
+                )
+                log.warning(
+                    "     MQTT monitoring will not receive data until the device is online."
+                )
                 log.warning("     Check: Is the device powered on? Is it connected to WiFi?")
-                log.warning("     In the Pecron app, go to the device — if it shows 'offline', the device can't reach the cloud.")
+                log.warning(
+                    "     In the Pecron app, go to the device — if it shows 'offline', the device can't reach the cloud."
+                )
             if api_name != name and name != "Unknown":
                 log.info("     ℹ️  API identifies this as '%s' (config says '%s')", api_name, name)
         else:
@@ -339,18 +405,26 @@ def resolve_devices(config: dict, token: str, region: dict) -> list:
                     break
             if corrected and corrected["product_key"] != pk:
                 log.warning("  ⚠️  %s (%s) — wrong product_key in config (pk=%s)", name, dk, pk)
-                log.info("     Auto-correcting to pk=%s (from account device list)", corrected["product_key"])
+                log.info(
+                    "     Auto-correcting to pk=%s (from account device list)",
+                    corrected["product_key"],
+                )
                 pk = corrected["product_key"]
                 tsl = get_product_tsl(token, region, pk)
-                devices.append({
-                    "product_key": pk, "device_key": dk,
-                    "device_name": corrected["name"],
-                    "product_name": corrected["name"],
-                    "controls": tsl or DEFAULT_CONTROLS,
-                })
+                devices.append(
+                    {
+                        "product_key": pk,
+                        "device_key": dk,
+                        "device_name": corrected["name"],
+                        "product_name": corrected["name"],
+                        "controls": tsl or DEFAULT_CONTROLS,
+                    }
+                )
                 log.info("  ✅ %s (pk=%s, dk=%s)", corrected["name"], pk, dk)
             else:
                 log.warning("  ❌ %s (%s) — not found or not bound", name, dk)
-                log.warning("     Check that your device_key is correct (Pecron app → Device → ⚙️ → Device Info → Device Key/Code)")
+                log.warning(
+                    "     Check that your device_key is correct (Pecron app → Device → ⚙️ → Device Info → Device Key/Code)"
+                )
                 log.warning("     It should be 12 hex characters (your device's MAC address)")
     return devices

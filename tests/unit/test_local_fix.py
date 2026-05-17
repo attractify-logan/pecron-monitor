@@ -16,12 +16,14 @@ from monitor import PecronMonitor
 
 
 def _set_devices(monitor: PecronMonitor) -> None:
-    monitor.devices = [{
-        "product_key": "p11u2b",
-        "device_key": "AABBCCDDEEFF",
-        "device_name": "E1500LFP",
-        "controls": {},
-    }]
+    monitor.devices = [
+        {
+            "product_key": "p11u2b",
+            "device_key": "AABBCCDDEEFF",
+            "device_name": "E1500LFP",
+            "controls": {},
+        }
+    ]
 
 
 def test_offline_mode_no_refresh(make_config):
@@ -50,7 +52,9 @@ def test_online_mode_valid_token_no_refresh(make_config):
 
 @patch("monitor.HAS_LOCAL", True)
 @patch("monitor.LocalTransport")
-def test_setup_local_transports_with_lan_ip_and_auth(mock_local_transport, make_config, fake_auth_key):
+def test_setup_local_transports_with_lan_ip_and_auth(
+    mock_local_transport, make_config, fake_auth_key
+):
     config = make_config(with_lan=True, with_auth=True)
     monitor = PecronMonitor(config)
     _set_devices(monitor)
@@ -95,7 +99,9 @@ def test_no_lan_ip_no_transport(mock_local_transport, make_config):
 @patch("monitor.HAS_LOCAL", True)
 @patch("monitor.get_auth_key")
 @patch("monitor.LocalTransport")
-def test_fetches_auth_key_from_cloud_if_missing(mock_local_transport, mock_get_auth_key, make_config, fake_auth_key):
+def test_fetches_auth_key_from_cloud_if_missing(
+    mock_local_transport, mock_get_auth_key, make_config, fake_auth_key
+):
     mock_get_auth_key.return_value = fake_auth_key
     config = make_config(with_lan=True, with_auth=False)
     monitor = PecronMonitor(config)
@@ -143,15 +149,19 @@ def test_check_offline_capable_without_auth(make_config):
 @patch("monitor.LocalTransport")
 @patch("monitor.resolve_devices")
 @patch("monitor.login")
-def test_cloud_auth_sets_up_local(mock_login, mock_resolve_devices, mock_local_transport, make_config, fake_auth_key):
+def test_cloud_auth_sets_up_local(
+    mock_login, mock_resolve_devices, mock_local_transport, make_config, fake_auth_key
+):
     mock_login.return_value = {"token": "***", "uid": "u", "expires_at": 9999999999}
-    mock_resolve_devices.return_value = [{
-        "product_key": "p11u2b",
-        "device_key": "AABBCCDDEEFF",
-        "device_name": "E1500LFP",
-        "product_name": "E1500LFP",
-        "controls": {},
-    }]
+    mock_resolve_devices.return_value = [
+        {
+            "product_key": "p11u2b",
+            "device_key": "AABBCCDDEEFF",
+            "device_name": "E1500LFP",
+            "product_name": "E1500LFP",
+            "controls": {},
+        }
+    ]
 
     config = make_config(with_lan=True, with_auth=True)
     monitor = PecronMonitor(config)

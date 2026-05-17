@@ -23,6 +23,12 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[test]"
 
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format
+        run: ruff format --check .
+
       - name: Syntax check
         run: python -m py_compile pecron_monitor.py && python -m py_compile local_transport.py
 
@@ -35,6 +41,12 @@ jobs:
       - name: Version consistency
         run: |
           PY_VER=$(python -c "import pecron_monitor; print(pecron_monitor.__version__)")
+          PYPROJECT_VER=$(python -c "import pathlib, re; print(re.search(r'^version = \"([^\"]+)\"', pathlib.Path('pyproject.toml').read_text(), re.M).group(1))")
+          if [ "$PY_VER" != "$PYPROJECT_VER" ]; then
+            echo "❌ pecron_monitor.__version__ ($PY_VER) != pyproject.toml version ($PYPROJECT_VER)"
+            exit 1
+          fi
+          echo "✅ Python and pyproject versions match: $PY_VER"
           if grep -q "## \[$PY_VER\]" CHANGELOG.md; then
             echo "✅ Version $PY_VER found in CHANGELOG.md"
           else

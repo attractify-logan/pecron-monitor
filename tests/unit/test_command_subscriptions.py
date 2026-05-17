@@ -69,12 +69,21 @@ class TestCommandTopicSubscriptions(unittest.TestCase):
 
         # E3800-specific switches that previously had discovery without
         # subscription. Without these, HA toggles do nothing.
-        self.assertIn("pecron/BC2A33E2B4BB/eco_mode/set", topics,
-                      "eco_mode command_topic must be subscribed (issue #49)")
-        self.assertIn("pecron/BC2A33E2B4BB/touch_lock/set", topics,
-                      "touch_lock command_topic must be subscribed (issue #49)")
-        self.assertIn("pecron/BC2A33E2B4BB/auto_light_flag_as/set", topics,
-                      "auto_light_flag_as (auto_dim) command_topic must be subscribed (issue #49)")
+        self.assertIn(
+            "pecron/BC2A33E2B4BB/eco_mode/set",
+            topics,
+            "eco_mode command_topic must be subscribed (issue #49)",
+        )
+        self.assertIn(
+            "pecron/BC2A33E2B4BB/touch_lock/set",
+            topics,
+            "touch_lock command_topic must be subscribed (issue #49)",
+        )
+        self.assertIn(
+            "pecron/BC2A33E2B4BB/auto_light_flag_as/set",
+            topics,
+            "auto_light_flag_as (auto_dim) command_topic must be subscribed (issue #49)",
+        )
 
     def test_command_topics_have_no_duplicates(self):
         """Discovery is sometimes re-run after reconnect; the captured list
@@ -87,8 +96,9 @@ class TestCommandTopicSubscriptions(unittest.TestCase):
         b._publish_discovery()
         second = list(b._command_topics)
         self.assertEqual(sorted(first), sorted(second))
-        self.assertEqual(len(set(second)), len(second),
-                         "no duplicates expected within a single discovery pass")
+        self.assertEqual(
+            len(set(second)), len(second), "no duplicates expected within a single discovery pass"
+        )
 
     def test_command_topics_capture_per_device(self):
         """With multiple devices, every device's command_topics must show up.
@@ -98,8 +108,7 @@ class TestCommandTopicSubscriptions(unittest.TestCase):
         topics = set(b._command_topics)
         for dk in ["DEV1", "DEV2"]:
             for ctrl in ["ac", "dc", "ups", "eco_mode", "touch_lock", "auto_light_flag_as"]:
-                self.assertIn(f"pecron/{dk}/{ctrl}/set", topics,
-                              f"missing {ctrl} for {dk}")
+                self.assertIn(f"pecron/{dk}/{ctrl}/set", topics, f"missing {ctrl} for {dk}")
 
     def test_subscribe_called_for_every_command_topic_on_connect(self):
         """End-to-end: simulate the on_connect path by invoking
@@ -120,8 +129,11 @@ class TestCommandTopicSubscriptions(unittest.TestCase):
 
         subscribed = {call.args[0] for call in b.client.subscribe.call_args_list}
         for ctrl in ["ac", "dc", "ups", "eco_mode", "touch_lock", "auto_light_flag_as"]:
-            self.assertIn(f"pecron/BC2A33E2B4BB/{ctrl}/set", subscribed,
-                          f"client.subscribe never called for {ctrl}/set")
+            self.assertIn(
+                f"pecron/BC2A33E2B4BB/{ctrl}/set",
+                subscribed,
+                f"client.subscribe never called for {ctrl}/set",
+            )
         # Sanity: every subscribe call uses qos=1 (matches the production loop)
         for call in b.client.subscribe.call_args_list:
             self.assertEqual(call.kwargs.get("qos"), 1)

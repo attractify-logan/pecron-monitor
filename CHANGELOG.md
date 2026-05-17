@@ -4,6 +4,23 @@ All notable changes to pecron-monitor are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
+
+## [0.7.10] - 2026-05-17
+
+### Added
+- **Docker support** (#71). Added a `Dockerfile`, `docker-compose.yml`, `.dockerignore`, and README instructions for building and running a local container image with `config.yaml` mounted read-only at `/config/config.yaml`.
+- **Console script entrypoint** (#68). Editable/package installs now expose `pecron-monitor`, while source-checkout usage via `python3 pecron_monitor.py` remains available.
+- **Ruff lint/format checks in CI** (#67). CI now runs `ruff check .` and `ruff format --check .` before tests.
+
+### Changed
+- **Local/offline mode can use fast polling again** (#70). The 63s cloud quota floor still applies whenever cloud polling can be used, but `--local`/offline mode may use lower `poll_interval` values for LAN/BLE monitoring.
+- **Package metadata is back in sync** (#64). `pyproject.toml`, `pecron_monitor.__version__`, README, and changelog now all report the same release version, and CI checks Python/package/changelog consistency.
+
+### Fixed
+- **NA cloud login domain fallback** (#31). North America login now retries once with the alternate Pecron/Quectel user domain when the primary domain returns a domain-related API error.
+- **MQTT CONNACK recovery** (#69). Broker failures such as `Client identifier not valid` or `Server unavailable` now trigger an in-process MQTT client rebuild after a cooldown, matching the manual service-restart recovery path.
+- **Setup credential handling** (#65). The setup wizard now hides password prompts, warns when an existing `config.yaml` is group/world-readable, and writes new config files with `0600` permissions on POSIX systems.
+
 ## [0.7.9] - 2026-05-03
 
 ### Added

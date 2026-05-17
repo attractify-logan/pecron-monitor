@@ -24,7 +24,6 @@ def make_bridge():
 
 
 class TestTotalPowerFallback(unittest.TestCase):
-
     def test_top_level_totals_absent_components_sum(self):
         """Device reports only ac_* and dc_* components, no top-level totals."""
         b = make_bridge()
@@ -41,10 +40,16 @@ class TestTotalPowerFallback(unittest.TestCase):
         }
         b.publish_state("DEV1", kv)
         cache = b._state_cache["DEV1"]
-        self.assertEqual(cache.get("total_input_power"), 170,
-                         "total_input_power must fall back to ac+dc=170 when top-level absent")
-        self.assertEqual(cache.get("total_output_power"), 130,
-                         "total_output_power must fall back to ac+dc=130 when top-level absent")
+        self.assertEqual(
+            cache.get("total_input_power"),
+            170,
+            "total_input_power must fall back to ac+dc=170 when top-level absent",
+        )
+        self.assertEqual(
+            cache.get("total_output_power"),
+            130,
+            "total_output_power must fall back to ac+dc=130 when top-level absent",
+        )
 
     def test_top_level_totals_present_overrides_fallback(self):
         """If the device DOES report top-level totals, use those; don't overwrite with sum."""
@@ -62,8 +67,11 @@ class TestTotalPowerFallback(unittest.TestCase):
         b.publish_state("DEV1", kv)
         cache = b._state_cache["DEV1"]
         # host-packet guard suppresses 0 only; 200 is real, must pass through
-        self.assertEqual(cache.get("total_input_power"), 200,
-                         "top-level total_input_power must NOT be overwritten by ac+dc sum")
+        self.assertEqual(
+            cache.get("total_input_power"),
+            200,
+            "top-level total_input_power must NOT be overwritten by ac+dc sum",
+        )
 
     def test_zero_components_cache_zero_total(self):
         """When ac/dc components both land as 0 (idle device), fallback publishes 0 so the
@@ -80,8 +88,11 @@ class TestTotalPowerFallback(unittest.TestCase):
         b.publish_state("DEV1", kv)
         cache = b._state_cache["DEV1"]
         # ac_input_power and dc_input_power both in cache, fallback fires with 0
-        self.assertEqual(cache.get("total_input_power"), 0,
-                         "idle device must publish total_input_power=0, not Unknown")
+        self.assertEqual(
+            cache.get("total_input_power"),
+            0,
+            "idle device must publish total_input_power=0, not Unknown",
+        )
 
     def test_no_components_at_all_stays_unknown(self):
         """If neither top-level total nor components arrive, don't invent a 0."""

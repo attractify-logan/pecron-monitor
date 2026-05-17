@@ -46,11 +46,13 @@ def _validate_devices(devices: object) -> list[dict]:
         if not isinstance(lan_ip, str) or not lan_ip.strip():
             raise ValueError(f"Device #{index} has an invalid lan_ip")
 
-        validated.append({
-            "device_key": device_key.strip(),
-            "auth_key": auth_key.strip(),
-            "lan_ip": lan_ip.strip(),
-        })
+        validated.append(
+            {
+                "device_key": device_key.strip(),
+                "auth_key": auth_key.strip(),
+                "lan_ip": lan_ip.strip(),
+            }
+        )
     return validated
 
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pecron-monitor"
-version = "0.5.6"
+version = "0.7.10"
 description = "Monitor and control Pecron portable power stations from the command line."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -20,7 +20,11 @@ ble = ["bleak>=0.21"]
 test = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
+    "ruff>=0.4",
 ]
+
+[project.scripts]
+pecron-monitor = "pecron_monitor:main"
 
 [tool.setuptools]
 py-modules = [
@@ -30,6 +34,7 @@ py-modules = [
     "helpers",
     "lan_scan",
     "local_transport",
+    "output_state",
     "monitor",
     "pecron_monitor",
     "protocol",
@@ -63,6 +68,7 @@ source = [
     "helpers",
     "lan_scan",
     "local_transport",
+    "output_state",
     "monitor",
     "pecron_monitor",
     "protocol",
@@ -79,3 +85,14 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "raise NotImplementedError",
 ]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/conftest.py" = ["E402"]
+"tests/hardware/*.py" = ["E402"]

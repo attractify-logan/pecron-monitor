@@ -1,0 +1,16 @@
+services:
+  pecron-monitor:
+    build: .
+    image: pecron-monitor:local
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PECRON_STATE_PATH: /data/pecron-state.json
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - pecron-monitor-data:/data
+    command: ["pecron-monitor", "--config", "/config/config.yaml"]
+
+volumes:
+  pecron-monitor-data:

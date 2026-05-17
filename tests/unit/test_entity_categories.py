@@ -19,32 +19,65 @@ class TestEntityCategoryHelper(unittest.TestCase):
     config for rarely-touched knobs, diagnostic for detail readouts."""
 
     def test_primary_entities_default_to_main_view(self):
-        for key in ["battery", "voltage", "temperature", "ac", "dc",
-                    "remaining_time", "total_input", "total_output",
-                    "current", "total_energy"]:
-            self.assertIsNone(entity_category_for(key),
-                              f"{key!r} should stay in main view (no category)")
+        for key in [
+            "battery",
+            "voltage",
+            "temperature",
+            "ac",
+            "dc",
+            "remaining_time",
+            "total_input",
+            "total_output",
+            "current",
+            "total_energy",
+        ]:
+            self.assertIsNone(
+                entity_category_for(key), f"{key!r} should stay in main view (no category)"
+            )
 
     def test_config_entities(self):
-        for key in ["ups", "eco_mode", "touch_lock", "bypass", "auto_dim",
-                    "screen_brightness", "ac_output_voltage", "ac_output_hz",
-                    "charging_limit_voltage", "battery_heating", "beep"]:
-            self.assertEqual(entity_category_for(key), "config",
-                             f"{key!r} should be in Configuration section")
+        for key in [
+            "ups",
+            "eco_mode",
+            "touch_lock",
+            "bypass",
+            "auto_dim",
+            "screen_brightness",
+            "ac_output_voltage",
+            "ac_output_hz",
+            "charging_limit_voltage",
+            "battery_heating",
+            "beep",
+        ]:
+            self.assertEqual(
+                entity_category_for(key), "config", f"{key!r} should be in Configuration section"
+            )
 
     def test_diagnostic_entities(self):
-        for key in ["host_battery", "battery_temp", "charging_plate_temp",
-                    "inverter_temp", "ac_input", "dc_input",
-                    "remaining_charging_time", "fault_alarm", "device_status"]:
-            self.assertEqual(entity_category_for(key), "diagnostic",
-                             f"{key!r} should be in Diagnostic section")
+        for key in [
+            "host_battery",
+            "battery_temp",
+            "charging_plate_temp",
+            "inverter_temp",
+            "ac_input",
+            "dc_input",
+            "remaining_charging_time",
+            "fault_alarm",
+            "device_status",
+        ]:
+            self.assertEqual(
+                entity_category_for(key), "diagnostic", f"{key!r} should be in Diagnostic section"
+            )
 
     def test_pack_sensors_are_diagnostic_by_prefix(self):
         for n in range(4):
             for suffix in ["battery", "voltage", "current", "temp", "status"]:
                 key = f"pack_{n}_{suffix}"
-                self.assertEqual(entity_category_for(key), "diagnostic",
-                                 f"{key!r} should be Diagnostic via pack_ prefix")
+                self.assertEqual(
+                    entity_category_for(key),
+                    "diagnostic",
+                    f"{key!r} should be Diagnostic via pack_ prefix",
+                )
 
     def test_unknown_key_stays_in_main_view(self):
         # Future new entity types should default to main view without opting in.
@@ -55,13 +88,21 @@ class TestEntityCategoryHelper(unittest.TestCase):
         """GX16 solar inputs live in main view because van/off-grid setups
         care about them at a glance. DC5521 (usually the AC-adapter jack)
         stays diagnostic."""
-        for key in ["gx16mf1_input_voltage", "gx16mf1_input_current", "gx16mf1_input_power",
-                    "gx16mf2_input_voltage", "gx16mf2_input_current", "gx16mf2_input_power"]:
-            self.assertIsNone(entity_category_for(key),
-                              f"solar port {key} must be main view, not diagnostic")
+        for key in [
+            "gx16mf1_input_voltage",
+            "gx16mf1_input_current",
+            "gx16mf1_input_power",
+            "gx16mf2_input_voltage",
+            "gx16mf2_input_current",
+            "gx16mf2_input_power",
+        ]:
+            self.assertIsNone(
+                entity_category_for(key), f"solar port {key} must be main view, not diagnostic"
+            )
         for key in ["dc5521_input_voltage", "dc5521_input_current", "dc5521_input_power"]:
-            self.assertEqual(entity_category_for(key), "diagnostic",
-                             f"DC5521 barrel jack {key} stays diagnostic")
+            self.assertEqual(
+                entity_category_for(key), "diagnostic", f"DC5521 barrel jack {key} stays diagnostic"
+            )
 
 
 class TestPubConfigInjectsCategory(unittest.TestCase):
@@ -83,8 +124,7 @@ class TestPubConfigInjectsCategory(unittest.TestCase):
         b = self._make_bridge()
         b._pub_config("sensor", "DEADBEEF", "battery", {"name": "Battery"})
         payload = self._last_published_payload(b)
-        self.assertNotIn("entity_category", payload,
-                         "Primary entities must not get a category")
+        self.assertNotIn("entity_category", payload, "Primary entities must not get a category")
 
     def test_config_entity_tagged(self):
         b = self._make_bridge()
@@ -107,11 +147,15 @@ class TestPubConfigInjectsCategory(unittest.TestCase):
     def test_explicit_category_in_payload_is_preserved(self):
         # If a call site already set entity_category explicitly, don't overwrite.
         b = self._make_bridge()
-        b._pub_config("sensor", "DEADBEEF", "battery_temp",
-                      {"name": "Batt Temp", "entity_category": "config"})
+        b._pub_config(
+            "sensor", "DEADBEEF", "battery_temp", {"name": "Batt Temp", "entity_category": "config"}
+        )
         payload = self._last_published_payload(b)
-        self.assertEqual(payload.get("entity_category"), "config",
-                         "Explicit category in call-site payload must win")
+        self.assertEqual(
+            payload.get("entity_category"),
+            "config",
+            "Explicit category in call-site payload must win",
+        )
 
     def test_publish_call_shape_unchanged(self):
         """Ensure we didn't accidentally break qos/retain/topic construction."""
@@ -130,8 +174,9 @@ class TestCategoryCoverage(unittest.TestCase):
 
     def test_only_valid_category_values(self):
         for key, cat in ENTITY_CATEGORIES.items():
-            self.assertIn(cat, ("config", "diagnostic"),
-                          f"{key!r}: {cat!r} is not a valid HA entity_category")
+            self.assertIn(
+                cat, ("config", "diagnostic"), f"{key!r}: {cat!r} is not a valid HA entity_category"
+            )
 
 
 if __name__ == "__main__":

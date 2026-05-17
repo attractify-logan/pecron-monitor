@@ -12,6 +12,7 @@ from monitor import (
     MIN_POLL_INTERVAL,
     RECOMMENDED_POLL_INTERVAL,
     _validate_poll_interval,
+    _validate_poll_interval_for_mode,
 )
 
 
@@ -61,6 +62,15 @@ class TestPollIntervalFloor:
     def test_min_is_below_recommended(self):
         # Sanity: the constants form a coherent floor/recommended pair.
         assert MIN_POLL_INTERVAL < RECOMMENDED_POLL_INTERVAL
+
+    def test_local_mode_allows_fast_polling(self, caplog):
+        caplog.set_level(logging.INFO, logger="pecron")
+        _validate_poll_interval_for_mode(15, force_offline=True)
+        assert any("allowed in local/offline mode" in r.message for r in caplog.records)
+
+    def test_cloud_mode_keeps_floor(self):
+        with pytest.raises(ValueError):
+            _validate_poll_interval_for_mode(15, force_offline=False)
 
 
 class TestPollIntervalConstants:

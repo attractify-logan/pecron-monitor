@@ -15,8 +15,6 @@ from observed power activity (total_input_power / total_output_power /
 ac_output_power / dc_output_power) which host-shape packets DO carry.
 """
 
-import pytest
-
 from ha_bridge import HomeAssistantBridge
 
 
@@ -55,52 +53,83 @@ def _run_inference(cache):
 
 class TestDeviceStatusInference:
     def test_shut_down_with_input_power_becomes_charging(self):
-        cache = _shut_down_with({"total_input_power": 89, "total_output_power": 233,
-                                 "ac_output_power": 232})
+        cache = _shut_down_with(
+            {"total_input_power": 89, "total_output_power": 233, "ac_output_power": 232}
+        )
         # Bruce's exact reproducer state from #45: device discharging at 233W AC
         # while charging at 89W (passthrough). Charging wins.
         out = _run_inference(cache)
         assert out["device_status_hm"] == "Charging"
 
     def test_shut_down_with_ac_output_only_becomes_ac_discharge(self):
-        cache = _shut_down_with({"total_input_power": 0, "total_output_power": 200,
-                                 "ac_output_power": 200, "dc_output_power": 0})
+        cache = _shut_down_with(
+            {
+                "total_input_power": 0,
+                "total_output_power": 200,
+                "ac_output_power": 200,
+                "dc_output_power": 0,
+            }
+        )
         out = _run_inference(cache)
         assert out["device_status_hm"] == "AC Discharge"
 
     def test_shut_down_with_dc_output_only_becomes_dc_discharge(self):
-        cache = _shut_down_with({"total_input_power": 0, "total_output_power": 50,
-                                 "ac_output_power": 0, "dc_output_power": 50})
+        cache = _shut_down_with(
+            {
+                "total_input_power": 0,
+                "total_output_power": 50,
+                "ac_output_power": 0,
+                "dc_output_power": 50,
+            }
+        )
         out = _run_inference(cache)
         assert out["device_status_hm"] == "DC Discharge"
 
     def test_shut_down_with_no_power_stays_shut_down(self):
         # Genuinely off device. Don't override.
-        cache = _shut_down_with({"total_input_power": 0, "total_output_power": 0,
-                                 "ac_output_power": 0, "dc_output_power": 0})
+        cache = _shut_down_with(
+            {
+                "total_input_power": 0,
+                "total_output_power": 0,
+                "ac_output_power": 0,
+                "dc_output_power": 0,
+            }
+        )
         out = _run_inference(cache)
         assert out["device_status_hm"] == "Shut Down"
 
     def test_charging_status_is_not_overridden(self):
         # Cache already says Charging from a real overall packet. Don't touch.
-        cache = {"device_status_hm": "Charging",
-                 "total_input_power": 100, "total_output_power": 50,
-                 "ac_output_power": 50, "dc_output_power": 0}
+        cache = {
+            "device_status_hm": "Charging",
+            "total_input_power": 100,
+            "total_output_power": 50,
+            "ac_output_power": 50,
+            "dc_output_power": 0,
+        }
         out = _run_inference(cache)
         assert out["device_status_hm"] == "Charging"
 
     def test_ac_discharge_status_is_not_overridden(self):
-        cache = {"device_status_hm": "AC Discharge",
-                 "total_input_power": 0, "total_output_power": 200,
-                 "ac_output_power": 200, "dc_output_power": 0}
+        cache = {
+            "device_status_hm": "AC Discharge",
+            "total_input_power": 0,
+            "total_output_power": 200,
+            "ac_output_power": 200,
+            "dc_output_power": 0,
+        }
         out = _run_inference(cache)
         assert out["device_status_hm"] == "AC Discharge"
 
     def test_standby_status_is_not_overridden(self):
         # Standby has no input/output but isn't Shut Down. Don't touch.
-        cache = {"device_status_hm": "Standby",
-                 "total_input_power": 0, "total_output_power": 0,
-                 "ac_output_power": 0, "dc_output_power": 0}
+        cache = {
+            "device_status_hm": "Standby",
+            "total_input_power": 0,
+            "total_output_power": 0,
+            "ac_output_power": 0,
+            "dc_output_power": 0,
+        }
         out = _run_inference(cache)
         assert out["device_status_hm"] == "Standby"
 
@@ -108,14 +137,26 @@ class TestDeviceStatusInference:
         # Both charging and discharging simultaneously (mains-powered passthrough):
         # charging takes precedence because that's the user-relevant state for
         # automations that care whether the battery is being topped up.
-        cache = _shut_down_with({"total_input_power": 500, "total_output_power": 200,
-                                 "ac_output_power": 200, "dc_output_power": 0})
+        cache = _shut_down_with(
+            {
+                "total_input_power": 500,
+                "total_output_power": 200,
+                "ac_output_power": 200,
+                "dc_output_power": 0,
+            }
+        )
         out = _run_inference(cache)
         assert out["device_status_hm"] == "Charging"
 
     def test_dc_dominates_ac_picks_dc_discharge(self):
-        cache = _shut_down_with({"total_input_power": 0, "total_output_power": 100,
-                                 "ac_output_power": 30, "dc_output_power": 70})
+        cache = _shut_down_with(
+            {
+                "total_input_power": 0,
+                "total_output_power": 100,
+                "ac_output_power": 30,
+                "dc_output_power": 70,
+            }
+        )
         out = _run_inference(cache)
         assert out["device_status_hm"] == "DC Discharge"
 
@@ -123,15 +164,27 @@ class TestDeviceStatusInference:
         # total_output_power > 0 but ac_out=0 and dc_out=0 (a packet shape that
         # reports total_out but not the per-line breakdown). The inference
         # block should leave the cached value alone rather than guess wrong.
-        cache = _shut_down_with({"total_input_power": 0, "total_output_power": 100,
-                                 "ac_output_power": 0, "dc_output_power": 0})
+        cache = _shut_down_with(
+            {
+                "total_input_power": 0,
+                "total_output_power": 100,
+                "ac_output_power": 0,
+                "dc_output_power": 0,
+            }
+        )
         out = _run_inference(cache)
         assert out["device_status_hm"] == "Shut Down"
 
     def test_none_values_are_treated_as_zero(self):
         # Cache may legitimately have None for a field that hasn't been
         # populated yet. The inference must not blow up on None; treat as 0.
-        cache = _shut_down_with({"total_input_power": None, "total_output_power": None,
-                                 "ac_output_power": None, "dc_output_power": None})
+        cache = _shut_down_with(
+            {
+                "total_input_power": None,
+                "total_output_power": None,
+                "ac_output_power": None,
+                "dc_output_power": None,
+            }
+        )
         out = _run_inference(cache)
         assert out["device_status_hm"] == "Shut Down"

@@ -1,6 +1,6 @@
 # Pecron Battery Monitor
 
-**v0.7.9** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
+**v0.7.10** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
 
 Monitor and control Pecron portable power stations from the command line — no phone app required.
 
@@ -28,8 +28,8 @@ Works with **any Pecron model** that uses the Pecron app (E300LFP through F5000L
 ```bash
 git clone https://github.com/attractify-logan/pecron-monitor.git
 cd pecron-monitor
-pip3 install -e ".[test]"
-python3 pecron_monitor.py --setup
+pip3 install -e .
+pecron-monitor --setup
 ```
 
 The setup wizard walks you through login, device discovery, and LAN/BLE scanning. You'll need your Pecron account email/password and your **Device Key** (found in the Pecron app under Device → ⚙️ → Device Info — 12 hex characters like `AABBCCDDEEFF`).
@@ -38,42 +38,44 @@ The setup wizard walks you through login, device discovery, and LAN/BLE scanning
 
 ```bash
 # One-shot status check
+pecron-monitor --status
 python3 pecron_monitor.py --status
 
-# Continuous monitoring (runs forever, polls every 60s)
+# Continuous monitoring (runs forever, polls every 70s by default)
+pecron-monitor
 python3 pecron_monitor.py
 
 # Control outputs
-python3 pecron_monitor.py --ac on
-python3 pecron_monitor.py --dc off
+pecron-monitor --ac on
+pecron-monitor --dc off
 
 # Offline mode (no internet, uses local WiFi/BLE only)
-python3 pecron_monitor.py --local
+pecron-monitor --local
 
 # Online only mode (uses internet, MQTT/REST transports)
-python3 pecron_monitor.py --nolocal
+pecron-monitor --nolocal
 
 # REST only mode (uses internet, REST transport only)
-python3 pecron_monitor.py --rest-only
+pecron-monitor --rest-only
 
 # See all available controls for your model
-python3 pecron_monitor.py --controls
+pecron-monitor --controls
 
 # Set value for a specific control
-python3 pecron_monitor.py --control <name> <value>
+pecron-monitor --control <name> <value>
 
 # Raw JSON dump (debugging)
-python3 pecron_monitor.py --raw
+pecron-monitor --raw
 
 # Diagnostics
-python3 pecron_monitor.py --diagnose --verbose
+pecron-monitor --diagnose --verbose
 
 # Probe a control's supported values (tries 0,1,2,... until readback no longer matches)
-python3 pecron_monitor.py --probe-control ac_discharge_power_hm --probe-max 40
+pecron-monitor --probe-control ac_discharge_power_hm --probe-max 40
 # Start probing at a custom value
-python3 pecron_monitor.py --probe-control ac_discharge_power_hm --probe-min 10 --probe-max 40
+pecron-monitor --probe-control ac_discharge_power_hm --probe-min 10 --probe-max 40
 # Probe over cloud only (skip local TCP/BLE setup)
-python3 pecron_monitor.py --probe-control ac_discharge_power_hm --probe-max 40 --nolocal
+pecron-monitor --probe-control ac_discharge_power_hm --probe-max 40 --nolocal
 ```
 
 ### Example Output
@@ -137,7 +139,7 @@ rules:
     cooldown_minutes: 30
 ```
 
-> **`poll_interval` floor.** Pecron's cloud rate-limits per-account at roughly 1280 polls/day (issue #29). The monitor refuses to start below 63s and warns between 63 and 69s. Below 63s the cap trips daily around 23:00 UTC with `code 4026 'Insufficient resources'`. The default of 70s leaves comfortable margin. Raise it further if you're seeing 4026 in your logs.
+> **`poll_interval` floor.** Pecron's cloud rate-limits per-account at roughly 1280 polls/day (issue #29). The monitor refuses to use cloud polling below 63s and warns between 63 and 69s. Below 63s the cap trips daily around 23:00 UTC with `code 4026 'Insufficient resources'`. The default of 70s leaves comfortable margin. Local/offline mode (`--local`) is not subject to this cloud quota and may use faster polling for LAN/BLE monitoring. Raise cloud polling further if you're seeing 4026 in your logs.
 
 ### Alert Options
 
@@ -164,11 +166,31 @@ Actions: `set_ac`, `set_dc`, `set_ups` (true/false)
 After running `--setup` once (needs internet to fetch encryption key), everything works offline:
 
 ```bash
-python3 pecron_monitor.py --local    # Force offline
-python3 pecron_monitor.py            # Auto-fallback if cloud unavailable
+pecron-monitor --local    # Force offline
+pecron-monitor            # Auto-fallback if cloud unavailable
 ```
 
 Works over WiFi TCP and/or Bluetooth. All monitoring, controls, and automations function offline. Only alerts that need internet (Telegram, ntfy, webhooks) won't fire.
+
+## Docker
+
+Build and run locally with Docker Compose:
+
+```bash
+docker compose up -d --build
+```
+
+The compose file expects `config.yaml` in the repo directory and mounts it read-only at `/config/config.yaml`. It uses host networking so LAN/TCP discovery and Home Assistant MQTT work like a normal host install on Linux. Docker Desktop does not provide equivalent host networking for LAN discovery; set `lan_ip` in `config.yaml` if discovery cannot see the device.
+
+One-shot Docker run:
+
+```bash
+docker build -t pecron-monitor:local .
+docker run --rm --network host \\
+  -v "$PWD/config.yaml:/config/config.yaml:ro" \\
+  -v pecron-monitor-data:/data \\
+  pecron-monitor:local pecron-monitor --config /config/config.yaml --status
+```
 
 ## Home Assistant
 

@@ -30,6 +30,7 @@ from protocol import (
 # Helper: minimal TTLV packet decoder for round-trip tests
 # ---------------------------------------------------------------------------
 
+
 def decode_packet(packet: bytes) -> dict:
     """Decode a TTLV packet into its components. Raises on malformed input."""
     if len(packet) < 8:
@@ -39,7 +40,7 @@ def decode_packet(packet: bytes) -> dict:
 
     length = struct.unpack(">H", packet[2:4])[0]
     crc = packet[4]
-    inner = packet[5:5 + length - 1]  # length includes the crc byte
+    inner = packet[5 : 5 + length - 1]  # length includes the crc byte
 
     if len(inner) != length - 1:
         raise ValueError(f"length mismatch: declared {length - 1}, got {len(inner)}")
@@ -63,17 +64,21 @@ def decode_packet(packet: bytes) -> dict:
 # _encode_varint — big-endian byte-packed integer
 # ---------------------------------------------------------------------------
 
+
 class TestEncodeVarint:
-    @pytest.mark.parametrize("value,expected", [
-        (0, b"\x00"),
-        (1, b"\x01"),
-        (127, b"\x7f"),
-        (128, b"\x80"),
-        (255, b"\xff"),
-        (256, b"\x01\x00"),
-        (0xABCD, b"\xab\xcd"),
-        (0xFF00FF, b"\xff\x00\xff"),
-    ])
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            (0, b"\x00"),
+            (1, b"\x01"),
+            (127, b"\x7f"),
+            (128, b"\x80"),
+            (255, b"\xff"),
+            (256, b"\x01\x00"),
+            (0xABCD, b"\xab\xcd"),
+            (0xFF00FF, b"\xff\x00\xff"),
+        ],
+    )
     def test_encoding(self, value, expected):
         assert _encode_varint(value) == expected
 
@@ -83,13 +88,14 @@ class TestEncodeVarint:
 
     def test_monotonic_length(self):
         """Larger values should never encode shorter than smaller values."""
-        lens = [len(_encode_varint(2 ** i)) for i in range(0, 33, 4)]
+        lens = [len(_encode_varint(2**i)) for i in range(0, 33, 4)]
         assert lens == sorted(lens)
 
 
 # ---------------------------------------------------------------------------
 # _build_packet — frames header/crc around an (id, cmd, payload) triple
 # ---------------------------------------------------------------------------
+
 
 class TestBuildPacket:
     def test_minimal_packet_structure(self):
@@ -140,6 +146,7 @@ class TestBuildPacket:
 # build_ttlv_read — cmd=0x0011 status request
 # ---------------------------------------------------------------------------
 
+
 class TestBuildTtlvRead:
     def test_default_packet_id(self):
         pkt = build_ttlv_read()
@@ -165,6 +172,7 @@ class TestBuildTtlvRead:
 # ---------------------------------------------------------------------------
 # build_ttlv_write_bool — cmd=0x0013 bool write
 # ---------------------------------------------------------------------------
+
 
 class TestBuildTtlvWriteBool:
     def test_ac_switch_on(self):
@@ -212,6 +220,7 @@ class TestBuildTtlvWriteBool:
 # build_ttlv_write_enum — cmd=0x0013 enum/int write
 # ---------------------------------------------------------------------------
 
+
 class TestBuildTtlvWriteEnum:
     def test_basic(self):
         # data_point_id=45 (screen brightness), value=3 (80%)
@@ -254,6 +263,7 @@ class TestBuildTtlvWriteEnum:
 # Round-trip invariants
 # ---------------------------------------------------------------------------
 
+
 class TestRoundTrip:
     @pytest.mark.parametrize("packet_id", [1, 2, 100, 0xFFFE])
     def test_read_roundtrip(self, packet_id):
@@ -262,13 +272,16 @@ class TestRoundTrip:
         assert decoded["packet_id"] == packet_id
         assert decoded["cmd"] == 0x0011
 
-    @pytest.mark.parametrize("packet_id,dp_id,value", [
-        (1, 27, True),
-        (1, 27, False),
-        (42, 38, True),
-        (100, 40, False),
-        (0xABCD, 91, True),
-    ])
+    @pytest.mark.parametrize(
+        "packet_id,dp_id,value",
+        [
+            (1, 27, True),
+            (1, 27, False),
+            (42, 38, True),
+            (100, 40, False),
+            (0xABCD, 91, True),
+        ],
+    )
     def test_write_bool_roundtrip(self, packet_id, dp_id, value):
         pkt = build_ttlv_write_bool(packet_id, dp_id, value)
         decoded = decode_packet(pkt)
@@ -277,12 +290,15 @@ class TestRoundTrip:
         # Last byte of payload encodes the bool bit
         assert (decoded["payload"][-1] & 1) == (1 if value else 0)
 
-    @pytest.mark.parametrize("packet_id,dp_id,value", [
-        (1, 45, 0),
-        (1, 45, 3),
-        (1, 50, 100),
-        (42, 91, 0xABCD),
-    ])
+    @pytest.mark.parametrize(
+        "packet_id,dp_id,value",
+        [
+            (1, 45, 0),
+            (1, 45, 3),
+            (1, 50, 100),
+            (42, 91, 0xABCD),
+        ],
+    )
     def test_write_enum_roundtrip(self, packet_id, dp_id, value):
         pkt = build_ttlv_write_enum(packet_id, dp_id, value)
         decoded = decode_packet(pkt)
@@ -298,6 +314,7 @@ class TestRoundTrip:
 # ---------------------------------------------------------------------------
 # Golden fixtures — swap in real device captures here
 # ---------------------------------------------------------------------------
+
 
 class TestGoldenFixtures:
     """TODO: Replace these synthetic expected-bytes with real captures sniffed

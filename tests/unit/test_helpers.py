@@ -16,49 +16,53 @@ from helpers import _truthy, _fmt_dhm, _get_kv, _get_kv_single
 # _truthy — coerces device values (0/1, '0'/'1', 'on'/'off', etc.) to bool
 # ---------------------------------------------------------------------------
 
+
 class TestTruthy:
-    @pytest.mark.parametrize("value,expected", [
-        # None passthrough
-        (None, None),
-        # Native bools
-        (True, True),
-        (False, False),
-        # Numbers
-        (0, False),
-        (1, True),
-        (42, True),
-        (-1, True),
-        (0.0, False),
-        (0.5, True),
-        # Truthy strings
-        ("1", True),
-        ("true", True),
-        ("True", True),
-        ("TRUE", True),
-        ("t", True),
-        ("yes", True),
-        ("y", True),
-        ("on", True),
-        ("open", True),
-        ("enabled", True),
-        # Falsy strings
-        ("0", False),
-        ("false", False),
-        ("False", False),
-        ("f", False),
-        ("no", False),
-        ("n", False),
-        ("off", False),
-        ("close", False),
-        ("closed", False),
-        ("disabled", False),
-        ("", False),
-        # Whitespace handling
-        ("  on  ", True),
-        ("  off  ", False),
-        # Unknown strings default to True (matches current helper behavior)
-        ("weird", True),
-    ])
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            # None passthrough
+            (None, None),
+            # Native bools
+            (True, True),
+            (False, False),
+            # Numbers
+            (0, False),
+            (1, True),
+            (42, True),
+            (-1, True),
+            (0.0, False),
+            (0.5, True),
+            # Truthy strings
+            ("1", True),
+            ("true", True),
+            ("True", True),
+            ("TRUE", True),
+            ("t", True),
+            ("yes", True),
+            ("y", True),
+            ("on", True),
+            ("open", True),
+            ("enabled", True),
+            # Falsy strings
+            ("0", False),
+            ("false", False),
+            ("False", False),
+            ("f", False),
+            ("no", False),
+            ("n", False),
+            ("off", False),
+            ("close", False),
+            ("closed", False),
+            ("disabled", False),
+            ("", False),
+            # Whitespace handling
+            ("  on  ", True),
+            ("  off  ", False),
+            # Unknown strings default to True (matches current helper behavior)
+            ("weird", True),
+        ],
+    )
     def test_coercion(self, value, expected):
         assert _truthy(value) == expected
 
@@ -73,35 +77,42 @@ class TestTruthy:
 # _fmt_dhm — format minutes as human-readable string
 # ---------------------------------------------------------------------------
 
+
 class TestFmtDhm:
-    @pytest.mark.parametrize("minutes,expected", [
-        # Sub-day values
-        (0, "0h00m"),
-        (5, "0h05m"),
-        (60, "1h00m"),
-        (75, "1h15m"),
-        (522, "8h42m"),  # matches README example output (8h 42m)
-        (1439, "23h59m"),
-        # Day-or-more values
-        (1440, "1d00h00m"),
-        (1500, "1d01h00m"),
-        (2880, "2d00h00m"),
-        ("60", "1h00m"),  # string coercion
-    ])
+    @pytest.mark.parametrize(
+        "minutes,expected",
+        [
+            # Sub-day values
+            (0, "0h00m"),
+            (5, "0h05m"),
+            (60, "1h00m"),
+            (75, "1h15m"),
+            (522, "8h42m"),  # matches README example output (8h 42m)
+            (1439, "23h59m"),
+            # Day-or-more values
+            (1440, "1d00h00m"),
+            (1500, "1d01h00m"),
+            (2880, "2d00h00m"),
+            ("60", "1h00m"),  # string coercion
+        ],
+    )
     def test_valid(self, minutes, expected):
         assert _fmt_dhm(minutes) == expected
 
-    @pytest.mark.parametrize("bad", [
-        None,
-        "not-a-number",
-        [1, 2, 3],
-        {},
-        -1,        # negative — guarded (CHANGELOG v0.5.4)
-        -100,
-        65535,     # sentinel for "unreliable" — guarded
-        65536,
-        100000,
-    ])
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            None,
+            "not-a-number",
+            [1, 2, 3],
+            {},
+            -1,  # negative — guarded (CHANGELOG v0.5.4)
+            -100,
+            65535,  # sentinel for "unreliable" — guarded
+            65536,
+            100000,
+        ],
+    )
     def test_invalid_returns_none(self, bad):
         assert _fmt_dhm(bad) is None
 
@@ -113,6 +124,7 @@ class TestFmtDhm:
 # ---------------------------------------------------------------------------
 # _get_kv_single — single-path nested navigation
 # ---------------------------------------------------------------------------
+
 
 class TestGetKvSingle:
     def test_top_level(self):
@@ -146,6 +158,7 @@ class TestGetKvSingle:
 # ---------------------------------------------------------------------------
 # _get_kv — multi-path lookup with fallbacks (mirrors SENSOR_FIELDS layout)
 # ---------------------------------------------------------------------------
+
 
 class TestGetKv:
     def test_single_path_hit(self):

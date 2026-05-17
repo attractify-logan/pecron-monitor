@@ -24,20 +24,21 @@ def make_config():
         "email": "test@test.com",
         "password": "test",
         "region": "na",
-        "devices": [{
-            "product_key": "p11u2b",
-            "device_key": "682499E40D61",
-            "name": "E1500LFP",
-            "lan_ip": "192.168.68.51",
-            "auth_key": FAKE_AUTH_KEY,
-        }],
+        "devices": [
+            {
+                "product_key": "p11u2b",
+                "device_key": "682499E40D61",
+                "name": "E1500LFP",
+                "lan_ip": "192.168.68.51",
+                "auth_key": FAKE_AUTH_KEY,
+            }
+        ],
         "poll_interval": 60,
         "cloud_retry_interval": 300,
     }
 
 
 class TestCloudRecovery(unittest.TestCase):
-
     def test_transient_failure_sets_fallback_flag(self):
         """A DNS-style cloud login failure leaves the monitor in a retry-eligible state."""
         config = make_config()
@@ -48,8 +49,11 @@ class TestCloudRecovery(unittest.TestCase):
             monitor.authenticate(force_offline=False)
         self.assertTrue(monitor.offline_mode, "Should fall back to offline on login failure")
         self.assertTrue(monitor._fell_back_to_offline, "Should flag the fallback as unplanned")
-        self.assertGreater(monitor._last_cloud_retry_at, 0,
-                           "Fallback should stamp _last_cloud_retry_at so the first retry waits")
+        self.assertGreater(
+            monitor._last_cloud_retry_at,
+            0,
+            "Fallback should stamp _last_cloud_retry_at so the first retry waits",
+        )
 
     def test_forced_offline_never_retries(self):
         """`--offline` runs are an explicit user choice and must not retry cloud."""
@@ -57,11 +61,14 @@ class TestCloudRecovery(unittest.TestCase):
         monitor = PecronMonitor(config)
         monitor.authenticate(force_offline=True)
         self.assertTrue(monitor.offline_mode)
-        self.assertFalse(monitor._fell_back_to_offline,
-                         "Forced offline must not be flagged as a transient fallback")
+        self.assertFalse(
+            monitor._fell_back_to_offline,
+            "Forced offline must not be flagged as a transient fallback",
+        )
         # Even without the interval guard, recovery should bail out immediately.
-        self.assertFalse(monitor._try_cloud_recovery(),
-                         "Forced offline mode should never attempt cloud recovery")
+        self.assertFalse(
+            monitor._try_cloud_recovery(), "Forced offline mode should never attempt cloud recovery"
+        )
 
     def test_recovery_respects_retry_interval(self):
         """Between retries the monitor stays silent; one attempt per interval only."""
@@ -71,8 +78,9 @@ class TestCloudRecovery(unittest.TestCase):
         monitor._fell_back_to_offline = True
         monitor._last_cloud_retry_at = time.time()  # just attempted
         with patch("monitor.login") as mock_login:
-            self.assertFalse(monitor._try_cloud_recovery(),
-                             "Should not retry inside the cooldown window")
+            self.assertFalse(
+                monitor._try_cloud_recovery(), "Should not retry inside the cooldown window"
+            )
             mock_login.assert_not_called()
 
     def test_successful_recovery_exits_offline_mode(self):
@@ -82,18 +90,25 @@ class TestCloudRecovery(unittest.TestCase):
         monitor.offline_mode = True
         monitor._fell_back_to_offline = True
         monitor._last_cloud_retry_at = 0  # cooldown already passed
-        monitor.skip_local_setup = True   # keep the test focused on cloud-side state
+        monitor.skip_local_setup = True  # keep the test focused on cloud-side state
         monitor.connect_mqtt = MagicMock()
 
         fake_token = {"token": "t", "uid": "U1", "expires_at": time.time() + 3600}
-        with patch("monitor.login", return_value=fake_token), \
-             patch("monitor.resolve_devices", return_value=[{
-                 "product_key": "p11u2b",
-                 "device_key": "682499E40D61",
-                 "device_name": "E1500LFP",
-                 "product_name": "E1500LFP",
-                 "controls": {},
-             }]):
+        with (
+            patch("monitor.login", return_value=fake_token),
+            patch(
+                "monitor.resolve_devices",
+                return_value=[
+                    {
+                        "product_key": "p11u2b",
+                        "device_key": "682499E40D61",
+                        "device_name": "E1500LFP",
+                        "product_name": "E1500LFP",
+                        "controls": {},
+                    }
+                ],
+            ),
+        ):
             recovered = monitor._try_cloud_recovery()
 
         self.assertTrue(recovered, "Retry should report success")
@@ -116,8 +131,11 @@ class TestCloudRecovery(unittest.TestCase):
         self.assertFalse(recovered)
         self.assertTrue(monitor.offline_mode)
         self.assertTrue(monitor._fell_back_to_offline)
-        self.assertGreater(monitor._last_cloud_retry_at, 0,
-                           "Failed attempt still arms the cooldown so we don't hammer the cloud")
+        self.assertGreater(
+            monitor._last_cloud_retry_at,
+            0,
+            "Failed attempt still arms the cooldown so we don't hammer the cloud",
+        )
 
     def test_token_refresh_remains_disabled_in_offline_mode(self):
         """Regression: offline-mode token refresh short-circuit must still hold."""
@@ -126,8 +144,10 @@ class TestCloudRecovery(unittest.TestCase):
         monitor.offline_mode = True
         monitor._fell_back_to_offline = True
         monitor.token_data = None
-        self.assertFalse(monitor._token_needs_refresh(),
-                         "Offline mode should never try to refresh the cloud token")
+        self.assertFalse(
+            monitor._token_needs_refresh(),
+            "Offline mode should never try to refresh the cloud token",
+        )
 
 
 if __name__ == "__main__":

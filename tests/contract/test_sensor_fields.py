@@ -82,6 +82,7 @@ def _load_capture(mqtt_payloads_dir, filename: str) -> dict:
 # Structural tests — verify SENSOR_FIELDS is well-formed regardless of data
 # ---------------------------------------------------------------------------
 
+
 class TestSensorFieldsStructure:
     def test_every_entry_is_a_list(self):
         for sensor, paths in SENSOR_FIELDS.items():
@@ -115,6 +116,7 @@ class TestSensorFieldsStructure:
 # ---------------------------------------------------------------------------
 # Synthetic payload tests — prove the fixture shapes in conftest.py parse
 # ---------------------------------------------------------------------------
+
 
 class TestSyntheticPayloadShapes:
     """These ride on the synthetic fixtures in conftest.py. They verify that
@@ -158,6 +160,7 @@ class TestSyntheticPayloadShapes:
 # Real capture tests — only run when fixtures are present
 # ---------------------------------------------------------------------------
 
+
 def _real_capture_ids():
     return list(REAL_CAPTURES.keys())
 
@@ -198,6 +201,7 @@ class TestRealCaptures:
 # ---------------------------------------------------------------------------
 # Coverage reporting — informational, never fails
 # ---------------------------------------------------------------------------
+
 
 def test_sensor_field_coverage_report(mqtt_payloads_dir, capsys):
     """Prints which sensors resolve against which real captures. Always passes;

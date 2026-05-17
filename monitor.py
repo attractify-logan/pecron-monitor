@@ -20,23 +20,29 @@ try:
 except ImportError:
     mqtt = None
 
-from helpers import _truthy, _get_kv, _get_kv_single
+from helpers import _get_kv, _get_kv_single
 from typing import Any, Optional
-from constants import DEVICE_STATUS_LABELS, REGIONS, DEFAULT_CONTROLS, SENSOR_FIELDS, BATTERY_CAPACITY_WH, MODEL_BEHAVIOR
-from cloud_api import (
-    login, resolve_devices, get_device_properties_rest, set_device_property_rest
+from constants import (
+    DEVICE_STATUS_LABELS,
+    REGIONS,
+    DEFAULT_CONTROLS,
+    SENSOR_FIELDS,
+    BATTERY_CAPACITY_WH,
+    MODEL_BEHAVIOR,
 )
+from cloud_api import login, resolve_devices, get_device_properties_rest, set_device_property_rest
 from protocol import build_ttlv_read, build_ttlv_write_bool, build_ttlv_write_enum
 
 # Local TCP transport (LAN-first, cloud-fallback)
 try:
     from local_transport import LocalTransport, get_auth_key
+
     HAS_LOCAL = True
 except ImportError:
     HAS_LOCAL = False
 
 try:
-    from local_transport import BLETransport, scan_ble_devices, HAS_BLE
+    from local_transport import BLETransport, HAS_BLE
 except ImportError:
     HAS_BLE = False
 
@@ -70,8 +76,22 @@ def _validate_poll_interval(poll_interval: int) -> None:
         log.warning(
             "poll_interval=%ds is below the recommended %ds and may trip cloud rate-limit "
             "code 4026 within ~24h (issue #29). Consider raising to %d.",
-            poll_interval, RECOMMENDED_POLL_INTERVAL, RECOMMENDED_POLL_INTERVAL,
+            poll_interval,
+            RECOMMENDED_POLL_INTERVAL,
+            RECOMMENDED_POLL_INTERVAL,
         )
+
+
+def _validate_poll_interval_for_mode(poll_interval: int, force_offline: bool) -> None:
+    """Apply the cloud poll floor only when cloud polling can be used."""
+    if force_offline:
+        if poll_interval < MIN_POLL_INTERVAL:
+            log.info(
+                "poll_interval=%ds is below the cloud floor but allowed in local/offline mode",
+                poll_interval,
+            )
+        return
+    _validate_poll_interval(poll_interval)
 
 
 class PecronMonitor:
@@ -88,7 +108,7 @@ class PecronMonitor:
         self._running = False
         self.ha_bridge = None
         self.local_transports = {}  # device_key → LocalTransport
-        self.ble_transports = {}   # device_key → BLETransport
+        self.ble_transports = {}  # device_key → BLETransport
         self.offline_mode = False  # Set to True when running in local-only mode
         self.no_ble = no_ble  # Skip BLE transport entirely
         self.rest_only = rest_only  # If True, disable MQTT and local transports; use REST API only
@@ -97,10 +117,12 @@ class PecronMonitor:
 
         # Automation rules
         self.rules = config.get("rules", [])
-        
+
+        self._mqtt_connect_failures = 0
+        self._last_mqtt_rebuild_at = 0.0
         # TCP reconnection tracking (prevent cascading E3800LFP lockout)
         self._local_connect_failures = {}  # device_key → consecutive failure count
-        self._last_connect_attempt = {}    # device_key → timestamp of last attempt
+        self._last_connect_attempt = {}  # device_key → timestamp of last attempt
         # Option to skip setting up local transports (set by authenticate skip_local)
         self.skip_local_setup = False
 
@@ -256,13 +278,15 @@ class PecronMonitor:
             # Load cached TSL if available, otherwise use defaults
             controls = d.get("tsl_cache", DEFAULT_CONTROLS)
 
-            self.devices.append({
-                "product_key": pk,
-                "device_key": dk,
-                "device_name": name,
-                "product_name": name,
-                "controls": controls,
-            })
+            self.devices.append(
+                {
+                    "product_key": pk,
+                    "device_key": dk,
+                    "device_name": name,
+                    "product_name": name,
+                    "controls": controls,
+                }
+            )
             log.info("  📦 Loaded from config: %s (pk=%s, dk=%s)", name, pk, dk)
 
         log.info("Loaded %d device(s) from config", len(self.devices))
@@ -281,14 +305,12 @@ class PecronMonitor:
         devices_to_discover = []
         for dk, cfg in configured.items():
             if cfg.get("auth_key") and (not cfg.get("lan_ip") or cfg.get("auto_discover", False)):
-                devices_to_discover.append({
-                    "device_key": dk,
-                    "auth_key": cfg["auth_key"]
-                })
+                devices_to_discover.append({"device_key": dk, "auth_key": cfg["auth_key"]})
 
         if devices_to_discover and HAS_LOCAL:
             try:
                 from lan_scan import discover_devices
+
                 discovered = discover_devices(devices_to_discover, timeout=0.5)
                 # Update configured IPs with discovered ones
                 for dk, ip in discovered.items():
@@ -315,16 +337,20 @@ class PecronMonitor:
                         if self.token_data:
                             log.info("Fetching auth key for %s...", dk)
                             auth_key = get_auth_key(
-                                self.token_data["token"], self.region,
-                                device["product_key"], dk
+                                self.token_data["token"], self.region, device["product_key"], dk
                             )
-                            log.info("Got auth key for %s (cache it in config.yaml as auth_key)", dk)
+                            log.info(
+                                "Got auth key for %s (cache it in config.yaml as auth_key)", dk
+                            )
                         else:
                             log.warning("No auth key for %s and no cloud token to fetch one", dk)
                             continue
-                    self.local_transports[dk] = LocalTransport(lan_ip, auth_key,
-                                                               device_key=dk,
-                                                               controls=device.get('controls', DEFAULT_CONTROLS))
+                    self.local_transports[dk] = LocalTransport(
+                        lan_ip,
+                        auth_key,
+                        device_key=dk,
+                        controls=device.get("controls", DEFAULT_CONTROLS),
+                    )
                     log.info("Local transport configured for %s @ %s", dk, lan_ip)
                 except Exception as e:
                     log.warning("Failed to set up local transport for %s: %s", dk, e)
@@ -348,16 +374,20 @@ class PecronMonitor:
                     if not auth_key and self.token_data:
                         log.info("Fetching auth key for %s (BLE)...", dk)
                         auth_key = get_auth_key(
-                            self.token_data["token"], self.region,
-                            device["product_key"], dk
+                            self.token_data["token"], self.region, device["product_key"], dk
                         )
                     if auth_key:
                         self.ble_transports[dk] = BLETransport(
-                            auth_key, device_address=ble_addr, device_key=dk,
-                            controls=device.get('controls', DEFAULT_CONTROLS)
+                            auth_key,
+                            device_address=ble_addr,
+                            device_key=dk,
+                            controls=device.get("controls", DEFAULT_CONTROLS),
                         )
-                        log.info("BLE transport configured for %s%s", dk,
-                                 f" @ {ble_addr}" if ble_addr else " (will scan)")
+                        log.info(
+                            "BLE transport configured for %s%s",
+                            dk,
+                            f" @ {ble_addr}" if ble_addr else " (will scan)",
+                        )
                 except Exception as e:
                     log.warning("Failed to set up BLE transport for %s: %s", dk, e)
 
@@ -386,23 +416,32 @@ class PecronMonitor:
         log.info("Re-discovering device %s (connection lost)...", device_key)
         try:
             from lan_scan import discover_devices
-            discovered = discover_devices([{
-                "device_key": device_key,
-                "auth_key": cfg["auth_key"]
-            }], timeout=0.5)
+
+            discovered = discover_devices(
+                [{"device_key": device_key, "auth_key": cfg["auth_key"]}], timeout=0.5
+            )
 
             if device_key in discovered:
                 new_ip = discovered[device_key]
                 old_ip = cfg.get("lan_ip")
                 if new_ip != old_ip:
-                    log.info("✅ Re-discovered %s at new IP: %s → %s", device_key, old_ip or "(none)", new_ip)
+                    log.info(
+                        "✅ Re-discovered %s at new IP: %s → %s",
+                        device_key,
+                        old_ip or "(none)",
+                        new_ip,
+                    )
                     # Update config and transport
                     cfg["lan_ip"] = new_ip
                     # Re-create transport with new IP
                     from local_transport import LocalTransport
-                    self.local_transports[device_key] = LocalTransport(new_ip, cfg["auth_key"],
-                                                                       device_key=device_key,
-                                                                       controls=self._find_device(device_key).get('controls', DEFAULT_CONTROLS))
+
+                    self.local_transports[device_key] = LocalTransport(
+                        new_ip,
+                        cfg["auth_key"],
+                        device_key=device_key,
+                        controls=self._find_device(device_key).get("controls", DEFAULT_CONTROLS),
+                    )
                     return True
                 else:
                     log.debug("Device %s still at same IP %s", device_key, new_ip)
@@ -433,12 +472,15 @@ class PecronMonitor:
         # Only apply cooldown if we had a recent failure
         if failure_count > 0 and now - last_attempt < 1.0:
             # Skip connection attempt if we failed less than 1 second ago
-            log.debug("Skipping connect for %s (cooldown: %.1fs since last failure)",
-                      device_key, now - last_attempt)
+            log.debug(
+                "Skipping connect for %s (cooldown: %.1fs since last failure)",
+                device_key,
+                now - last_attempt,
+            )
             return False
 
         self._last_connect_attempt[device_key] = now
-        
+
         try:
             connected = lt.connect()
             if connected:
@@ -446,14 +488,16 @@ class PecronMonitor:
                 self._local_connect_failures[device_key] = 0
             else:
                 # Increment failure counter
-                self._local_connect_failures[device_key] = \
+                self._local_connect_failures[device_key] = (
                     self._local_connect_failures.get(device_key, 0) + 1
+                )
             return connected
         except Exception as e:
             log.debug("Local connect failed for %s: %s", device_key, e)
             # Increment failure counter on exception
-            self._local_connect_failures[device_key] = \
+            self._local_connect_failures[device_key] = (
                 self._local_connect_failures.get(device_key, 0) + 1
+            )
             return False
 
     def _channel_id(self, device: dict) -> str:
@@ -461,20 +505,20 @@ class PecronMonitor:
 
     def _has_telemetry_fields(self, kv: dict) -> bool:
         """Check if data dict contains COMPLETE telemetry fields (not just settings).
-        
-        E3600/E3800 local TCP returns ONLY settings fields (14 fields like 
+
+        E3600/E3800 local TCP returns ONLY settings fields (14 fields like
         ac_output_voltage_io, ac_output_frequency_io, noastime_io, ac_switch_hm, etc.)
         but NO telemetry (battery_percentage, voltage, power, temperature).
-        
+
         E3800 might return battery_percentage alone, but without voltage/power/temp,
         so we need to check for host_packet_data_jdb which contains the real telemetry.
-        
+
         This method checks for key telemetry fields to determine if local data
         should be treated as primary or if we need to rely on MQTT cloud data.
-        
+
         Args:
             kv: Data dict to check
-            
+
         Returns:
             True if data contains COMPLETE telemetry fields, False if only settings
         """
@@ -492,25 +536,25 @@ class PecronMonitor:
                 has_temp = "host_packet_temp" in host_data
                 if has_voltage or has_temp:
                     return True
-        
+
         # Check for power data structures (E1500 has these, E3600/E3800 don't via local TCP)
         power_structures = [
             "ac_data_output_hm",
-            "dc_data_output_hm", 
+            "dc_data_output_hm",
             "ac_data_input_hm",
             "dc_data_input_hm",
         ]
-        
+
         for field in power_structures:
             if field in kv:
                 value = kv[field]
                 if isinstance(value, dict) and value:
                     return True
-        
+
         # Check for top-level power fields
         if kv.get("total_input_power", 0) > 0 or kv.get("total_output_power", 0) > 0:
             return True
-        
+
         # Check for battery_percentage at top level (E3600/E3800 MQTT telemetry packets)
         battery_pct = kv.get("battery_percentage")
         if battery_pct is not None:
@@ -519,7 +563,7 @@ class PecronMonitor:
                     return True
             except (ValueError, TypeError):
                 pass
-        
+
         return False
 
     def _find_device(self, device_key: str) -> dict:
@@ -532,8 +576,10 @@ class PecronMonitor:
 
     def _on_connect(self, client, userdata, flags, rc, properties=None):
         if rc != mqtt.CONNACK_ACCEPTED:
+            self._mqtt_connect_failures += 1
             log.error("MQTT connection failed: %s", mqtt.connack_string(rc))
             return
+        self._mqtt_connect_failures = 0
         log.info("MQTT connected")
         for device in self.devices:
             cid = self._channel_id(device)
@@ -541,9 +587,13 @@ class PecronMonitor:
                 topic = f"q/2/d/{cid}/{suffix}"
                 client.subscribe(topic, qos=1)
                 log.debug("  Subscribed: %s", topic)
-            log.info("Subscribed to %s (pk=%s, dk=%s, channel=%s)",
-                     device["device_name"], device["product_key"],
-                     device["device_key"], cid)
+            log.info(
+                "Subscribed to %s (pk=%s, dk=%s, channel=%s)",
+                device["device_name"],
+                device["product_key"],
+                device["device_key"],
+                cid,
+            )
 
     def _on_message(self, client, userdata, msg):
         try:
@@ -554,8 +604,13 @@ class PecronMonitor:
 
         topic_suffix = msg.topic.split("/")[-1]
         device_key = payload.get("deviceKey", "")
-        log.debug("MQTT message: topic=%s suffix=%s dk=%s keys=%s",
-                  msg.topic, topic_suffix, device_key, list(payload.keys()))
+        log.debug(
+            "MQTT message: topic=%s suffix=%s dk=%s keys=%s",
+            msg.topic,
+            topic_suffix,
+            device_key,
+            list(payload.keys()),
+        )
 
         if topic_suffix == "bus_" and "data" in payload:
             kv = payload["data"].get("kv", {})
@@ -570,9 +625,9 @@ class PecronMonitor:
                     log.debug("Merging CLOUD MQTT data with existing local data for %s", device_key)
                 else:
                     log.debug("Processing CLOUD MQTT data for %s", device_key)
-                
+
                 self._merge_device_data(device_key, kv)
-                
+
                 # Process from the ACCUMULATED data, not just this message
                 # This ensures we have the complete picture after multiple partial packets
                 accumulated = self.latest_data.get(device_key, kv)
@@ -593,15 +648,27 @@ class PecronMonitor:
             msg_text = payload.get("msg", "")
             msg_type = payload.get("type", "")
             if code == 4007:
-                if not hasattr(self, '_4007_warned'):
+                if not hasattr(self, "_4007_warned"):
                     self._4007_warned = True
-                    log.warning("Cloud reported 'device is not bound' (code 4007) during startup/control traffic.")
-                    log.warning("This can mean the wrong product_key is configured, but it can also be a transient or noisy cloud-system message.")
-                    log.warning("If device verification succeeds or telemetry still arrives via MQTT/local/REST, you can usually ignore this warning.")
-                    log.warning("Only treat it as actionable if the warning persists AND the device never produces telemetry.")
-                    log.warning("Then run 'python pecron_monitor.py --diagnose -v' or '--setup' to verify the product_key/device_key pair.")
+                    log.warning(
+                        "Cloud reported 'device is not bound' (code 4007) during startup/control traffic."
+                    )
+                    log.warning(
+                        "This can mean the wrong product_key is configured, but it can also be a transient or noisy cloud-system message."
+                    )
+                    log.warning(
+                        "If device verification succeeds or telemetry still arrives via MQTT/local/REST, you can usually ignore this warning."
+                    )
+                    log.warning(
+                        "Only treat it as actionable if the warning persists AND the device never produces telemetry."
+                    )
+                    log.warning(
+                        "Then run 'python pecron_monitor.py --diagnose -v' or '--setup' to verify the product_key/device_key pair."
+                    )
             elif code == 4026:
-                log.warning("Cloud system message: code=%s msg='%s' type=%s", code, msg_text, msg_type)
+                log.warning(
+                    "Cloud system message: code=%s msg='%s' type=%s", code, msg_text, msg_type
+                )
                 if not getattr(self, "_4026_warned", False):
                     self._4026_warned = True
                     configured = self.config.get("poll_interval", RECOMMENDED_POLL_INTERVAL)
@@ -610,12 +677,17 @@ class PecronMonitor:
                         "per-account polling rate-limit (~1280 polls/day) — not a Pecron-side "
                         "outage. Current poll_interval=%ds. Raise it in config.yaml (>=%d "
                         "recommended) and restart. The cap resets at 00:00 UTC. See issue #29.",
-                        configured, RECOMMENDED_POLL_INTERVAL,
+                        configured,
+                        RECOMMENDED_POLL_INTERVAL,
                     )
             elif code and code != 200:
-                log.warning("Cloud system message: code=%s msg='%s' type=%s", code, msg_text, msg_type)
+                log.warning(
+                    "Cloud system message: code=%s msg='%s' type=%s", code, msg_text, msg_type
+                )
             else:
-                log.debug("Cloud system message: code=%s msg='%s' type=%s", code, msg_text, msg_type)
+                log.debug(
+                    "Cloud system message: code=%s msg='%s' type=%s", code, msg_text, msg_type
+                )
 
     # --- Data processing ---
 
@@ -632,7 +704,9 @@ class PecronMonitor:
         if source in ("LOCAL TCP", "BLE"):
             # Fix battery_percentage: use host_packet_electric_percentage if top-level is 0
             if kv.get("battery_percentage") == 0:
-                host_pct = _get_kv_single(kv, ("host_packet_data_jdb", "host_packet_electric_percentage"))
+                host_pct = _get_kv_single(
+                    kv, ("host_packet_data_jdb", "host_packet_electric_percentage")
+                )
                 if host_pct is not None and host_pct > 0:
                     kv["battery_percentage"] = host_pct
 
@@ -653,11 +727,17 @@ class PecronMonitor:
                 if pack_battery == 0 and 5 <= pack_status <= 100:
                     pack["charging_pack_battery"] = pack_status
                     pack["charging_pack_status"] = 0
-                    log.debug("Swapped charging_pack fields: battery was 0, using status=%d%%", pack_status)
+                    log.debug(
+                        "Swapped charging_pack fields: battery was 0, using status=%d%%",
+                        pack_status,
+                    )
                 elif pack_status == 0 and 5 <= pack_battery <= 100:
                     pack["charging_pack_status"] = pack_battery
                     pack["charging_pack_battery"] = 0
-                    log.debug("Swapped charging_pack fields: status was 0, using battery=%d%% as status", pack_battery)
+                    log.debug(
+                        "Swapped charging_pack fields: status was 0, using battery=%d%% as status",
+                        pack_battery,
+                    )
 
         battery_pct = int(_get_kv(kv, SENSOR_FIELDS["battery_percent"], -1))
         voltage = float(_get_kv(kv, SENSOR_FIELDS["voltage"], 0))
@@ -689,8 +769,12 @@ class PecronMonitor:
         # Only skip the status log line to avoid spamming with incomplete readings
         data_incomplete = battery_pct < 0 and voltage == 0 and total_in == 0 and total_out == 0
         if data_incomplete:
-            log.debug("Skipping status log for %s (incomplete packet: battery=%d%%, voltage=%.1fV) — data will accumulate",
-                      device_key, battery_pct, voltage)
+            log.debug(
+                "Skipping status log for %s (incomplete packet: battery=%d%%, voltage=%.1fV) — data will accumulate",
+                device_key,
+                battery_pct,
+                voltage,
+            )
             # Still update HA bridge and check alerts with what we have
             if self.ha_bridge:
                 self.ha_bridge.publish_state(device_key, kv)
@@ -701,8 +785,12 @@ class PecronMonitor:
         # When battery% packet arrives first, voltage hasn't been received yet (shows 0.0V)
         # Skip the status log in this case to avoid misleading "80% | 0.0V" logs
         if voltage == 0 and battery_pct >= 0:
-            log.debug("Skipping status log for %s (voltage not yet received: battery=%d%%, voltage=%.1fV) — waiting for voltage packet",
-                      device_key, battery_pct, voltage)
+            log.debug(
+                "Skipping status log for %s (voltage not yet received: battery=%d%%, voltage=%.1fV) — waiting for voltage packet",
+                device_key,
+                battery_pct,
+                voltage,
+            )
             # Still update HA bridge and check alerts with what we have
             if self.ha_bridge:
                 self.ha_bridge.publish_state(device_key, kv)
@@ -725,10 +813,14 @@ class PecronMonitor:
             and remain <= 0
         )
         if is_local_shutdown_zero_frame:
-            log.debug("Skipping %s shutdown-window zero-frame for %s "
-                      "(battery=0%%, voltage=%.1fV, all power=0) — letting cloud "
-                      "telemetry stay authoritative for HA during shutdown.",
-                      source, device_key, voltage)
+            log.debug(
+                "Skipping %s shutdown-window zero-frame for %s "
+                "(battery=0%%, voltage=%.1fV, all power=0) — letting cloud "
+                "telemetry stay authoritative for HA during shutdown.",
+                source,
+                device_key,
+                voltage,
+            )
             return  # Don't update HA, don't re-fire alerts, don't log status
 
         # Track data source — prefer local transports over cloud
@@ -755,8 +847,15 @@ class PecronMonitor:
         last_values = self._last_logged_values.get(device_key)
 
         if last_values == current_values:
-            log.debug("Skipping status log for %s (values unchanged: %d%%, %.1fV, %d°C, In:%dW, Out:%dW)",
-                      device_key, battery_pct, voltage, temp, total_in, total_out)
+            log.debug(
+                "Skipping status log for %s (values unchanged: %d%%, %.1fV, %d°C, In:%dW, Out:%dW)",
+                device_key,
+                battery_pct,
+                voltage,
+                temp,
+                total_in,
+                total_out,
+            )
             # Still update HA bridge and check alerts even with stale data
             if self.ha_bridge:
                 self.ha_bridge.publish_state(device_key, kv)
@@ -767,9 +866,16 @@ class PecronMonitor:
         # Update last logged values
         self._last_logged_values[device_key] = current_values
 
-        log.info("🔋 %s%% | %.1fV | %d°C | ⚡ In:%dW Out:%dW | ⏱ %s [via %s]",
-                 battery_pct, voltage, temp, total_in, total_out,
-                 remain_str, source)
+        log.info(
+            "🔋 %s%% | %.1fV | %d°C | ⚡ In:%dW Out:%dW | ⏱ %s [via %s]",
+            battery_pct,
+            voltage,
+            temp,
+            total_in,
+            total_out,
+            remain_str,
+            source,
+        )
 
         # Publish to Home Assistant
         if self.ha_bridge:
@@ -801,10 +907,12 @@ class PecronMonitor:
 
     def _send_alert(self, device_key, battery_pct, voltage, remain_min):
         device_name = self._get_device_name(device_key)
-        msg = (f"⚠️ Pecron Low Battery Alert\n"
-               f"Device: {device_name}\n"
-               f"Battery: {battery_pct}%\nVoltage: {voltage:.1f}V\n"
-               f"Remaining: {remain_min // 60}h {remain_min % 60}m")
+        msg = (
+            f"⚠️ Pecron Low Battery Alert\n"
+            f"Device: {device_name}\n"
+            f"Battery: {battery_pct}%\nVoltage: {voltage:.1f}V\n"
+            f"Remaining: {remain_min // 60}h {remain_min % 60}m"
+        )
         log.warning(msg)
         alerts = self.config.get("alerts", {})
 
@@ -820,8 +928,11 @@ class PecronMonitor:
         ntfy = alerts.get("ntfy", {})
         if ntfy.get("enabled") and ntfy.get("url"):
             try:
-                req = urllib.request.Request(ntfy["url"], data=msg.encode(),
-                                             headers={"Title": f"Pecron Battery {battery_pct}%"})
+                req = urllib.request.Request(
+                    ntfy["url"],
+                    data=msg.encode(),
+                    headers={"Title": f"Pecron Battery {battery_pct}%"},
+                )
                 urllib.request.urlopen(req, timeout=10)
             except Exception as e:
                 log.error("ntfy alert failed: %s", e)
@@ -829,11 +940,18 @@ class PecronMonitor:
         wh = alerts.get("webhook", {})
         if wh.get("enabled") and wh.get("url"):
             try:
-                payload = json.dumps({"battery_percent": battery_pct, "voltage": voltage,
-                                       "remain_minutes": remain_min, "device_key": device_key,
-                                       "message": msg}).encode()
-                req = urllib.request.Request(wh["url"], data=payload,
-                                             headers={"Content-Type": "application/json"})
+                payload = json.dumps(
+                    {
+                        "battery_percent": battery_pct,
+                        "voltage": voltage,
+                        "remain_minutes": remain_min,
+                        "device_key": device_key,
+                        "message": msg,
+                    }
+                ).encode()
+                req = urllib.request.Request(
+                    wh["url"], data=payload, headers={"Content-Type": "application/json"}
+                )
                 urllib.request.urlopen(req, timeout=10)
             except Exception as e:
                 log.error("Webhook alert failed: %s", e)
@@ -883,7 +1001,13 @@ class PecronMonitor:
         if ble and ble.connected:
             try:
                 if ble.send_control(ctrl["id"], value, ctrl_type, verify=verify):
-                    log.info("Sent %s=%s (type=%s) to %s via BLE", control_code, value, ctrl_type, device_key)
+                    log.info(
+                        "Sent %s=%s (type=%s) to %s via BLE",
+                        control_code,
+                        value,
+                        ctrl_type,
+                        device_key,
+                    )
                     return True
             except Exception as e:
                 log.warning("BLE control failed: %s", e)
@@ -899,7 +1023,13 @@ class PecronMonitor:
             if lt.connected:
                 try:
                     if lt.send_control(ctrl["id"], value, ctrl_type, verify=verify):
-                        log.info("Sent %s=%s (type=%s) to %s via TCP", control_code, value, ctrl_type, device_key)
+                        log.info(
+                            "Sent %s=%s (type=%s) to %s via TCP",
+                            control_code,
+                            value,
+                            ctrl_type,
+                            device_key,
+                        )
                         return True
                 except Exception as e:
                     log.warning("TCP control failed: %s", e)
@@ -908,15 +1038,23 @@ class PecronMonitor:
         # Normal mode: try MQTT first, REST as fallback
         if self.mqtt_client is not None:
             self.mqtt_client.publish(f"q/1/d/{cid}/bus", pkt, qos=1)
-            log.info("Sent %s=%s (type=%s) to %s via CLOUD MQTT", control_code, value, ctrl_type, device_key)
+            log.info(
+                "Sent %s=%s (type=%s) to %s via CLOUD MQTT",
+                control_code,
+                value,
+                ctrl_type,
+                device_key,
+            )
             return True
 
         # MQTT not available, try REST API as fallback
         if self.token_data:
             if set_device_property_rest(
-                self.token_data["token"], self.region,
-                device["product_key"], device_key,
-                {control_code: value}
+                self.token_data["token"],
+                self.region,
+                device["product_key"],
+                device_key,
+                {control_code: value},
             ):
                 log.info("Sent %s=%s to %s via CLOUD REST API", control_code, value, device_key)
                 return True
@@ -958,8 +1096,9 @@ class PecronMonitor:
                 return None
         return None
 
-    def probe_control_values(self, device_key: str, control_code: str,
-                             min_value: int = 0, max_value: int = 255) -> dict:
+    def probe_control_values(
+        self, device_key: str, control_code: str, min_value: int = 0, max_value: int = 255
+    ) -> dict:
         """Probe supported control values from min_value upward with set-then-readback validation.
 
         For each candidate value:
@@ -1056,8 +1195,12 @@ class PecronMonitor:
         # If battery is -1 or 0 AND voltage is 0, the data is clearly invalid
         voltage = float(_get_kv(kv, SENSOR_FIELDS["voltage"], 0))
         if battery_pct <= 0 and voltage == 0:
-            log.debug("Skipping rule evaluation for %s: invalid data (battery=%d%%, voltage=%.1fV)",
-                      device_key, battery_pct, voltage)
+            log.debug(
+                "Skipping rule evaluation for %s: invalid data (battery=%d%%, voltage=%.1fV)",
+                device_key,
+                battery_pct,
+                voltage,
+            )
             return
 
         for rule in self.rules:
@@ -1080,9 +1223,13 @@ class PecronMonitor:
                         continue
                     triggered = battery_pct >= condition["battery_above"]
                 elif "input_power_below" in condition:
-                    triggered = int(kv.get("total_input_power", 0)) <= condition["input_power_below"]
+                    triggered = (
+                        int(kv.get("total_input_power", 0)) <= condition["input_power_below"]
+                    )
                 elif "input_power_above" in condition:
-                    triggered = int(kv.get("total_input_power", 0)) >= condition["input_power_above"]
+                    triggered = (
+                        int(kv.get("total_input_power", 0)) >= condition["input_power_above"]
+                    )
                 elif "schedule" in condition:
                     # Time-based: "HH:MM" format
                     now = datetime.now().strftime("%H:%M")
@@ -1111,7 +1258,11 @@ class PecronMonitor:
                         break
 
                 if not target_device:
-                    log.warning("Rule '%s': target device %s not found, skipping", rule.get("name"), target_dk)
+                    log.warning(
+                        "Rule '%s': target device %s not found, skipping",
+                        rule.get("name"),
+                        target_dk,
+                    )
                     continue
 
                 target_controls = target_device.get("controls", {})
@@ -1119,26 +1270,50 @@ class PecronMonitor:
                 if "set_ac" in action:
                     if "ac_switch_hm" in target_controls:
                         self.set_ac(target_dk, action["set_ac"])
-                        log.info("Rule '%s': set AC=%s on %s", rule.get("name"), action["set_ac"], target_dk)
+                        log.info(
+                            "Rule '%s': set AC=%s on %s",
+                            rule.get("name"),
+                            action["set_ac"],
+                            target_dk,
+                        )
                     else:
-                        log.warning("Rule '%s': device %s does not have AC control, skipping action",
-                                    rule.get("name"), target_dk)
+                        log.warning(
+                            "Rule '%s': device %s does not have AC control, skipping action",
+                            rule.get("name"),
+                            target_dk,
+                        )
 
                 if "set_dc" in action:
                     if "dc_switch_hm" in target_controls:
                         self.set_dc(target_dk, action["set_dc"])
-                        log.info("Rule '%s': set DC=%s on %s", rule.get("name"), action["set_dc"], target_dk)
+                        log.info(
+                            "Rule '%s': set DC=%s on %s",
+                            rule.get("name"),
+                            action["set_dc"],
+                            target_dk,
+                        )
                     else:
-                        log.warning("Rule '%s': device %s does not have DC control, skipping action",
-                                    rule.get("name"), target_dk)
+                        log.warning(
+                            "Rule '%s': device %s does not have DC control, skipping action",
+                            rule.get("name"),
+                            target_dk,
+                        )
 
                 if "set_ups" in action:
                     if "ups_status_hm" in target_controls:
                         self.set_ups(target_dk, action["set_ups"])
-                        log.info("Rule '%s': set UPS=%s on %s", rule.get("name"), action["set_ups"], target_dk)
+                        log.info(
+                            "Rule '%s': set UPS=%s on %s",
+                            rule.get("name"),
+                            action["set_ups"],
+                            target_dk,
+                        )
                     else:
-                        log.warning("Rule '%s': device %s does not have UPS control, skipping action",
-                                    rule.get("name"), target_dk)
+                        log.warning(
+                            "Rule '%s': device %s does not have UPS control, skipping action",
+                            rule.get("name"),
+                            target_dk,
+                        )
 
             except Exception as e:
                 log.error("Rule evaluation error: %s", e)
@@ -1168,15 +1343,17 @@ class PecronMonitor:
                         if kv:
                             log.debug("Got status via BLE for %s", dk)
                             self._merge_device_data(dk, kv)
-                            
+
                             # Only mark as local data if it contains telemetry fields
                             has_telemetry = self._has_telemetry_fields(kv)
                             if has_telemetry:
                                 self._local_data_keys.add(dk)  # Mark as local data
                                 log.debug("BLE data contains telemetry for %s", dk)
                             else:
-                                log.debug("BLE data is settings-only for %s (telemetry from cloud)", dk)
-                            
+                                log.debug(
+                                    "BLE data is settings-only for %s (telemetry from cloud)", dk
+                                )
+
                             self._process_data(dk, kv, source="BLE")
                             continue
                     except Exception as e:
@@ -1193,15 +1370,21 @@ class PecronMonitor:
                     configured = {d.get("device_key"): d for d in self.config.get("devices", [])}
                     cfg = configured.get(dk)
                     has_pinned_ip = cfg and cfg.get("lan_ip")
-                    
+
                     if has_pinned_ip:
                         # Pinned IP: skip re-discovery, fall through to cloud MQTT
-                        log.debug("Local TCP connection failed for %s (pinned IP, failure #%d) — skipping to cloud",
-                                  dk, failure_count)
+                        log.debug(
+                            "Local TCP connection failed for %s (pinned IP, failure #%d) — skipping to cloud",
+                            dk,
+                            failure_count,
+                        )
                     elif failure_count >= 5:
                         # Auto-discovered device with 5+ failures: try re-discovery
-                        log.debug("Local TCP connection failed for %s (%d consecutive failures), attempting re-discovery...",
-                                  dk, failure_count)
+                        log.debug(
+                            "Local TCP connection failed for %s (%d consecutive failures), attempting re-discovery...",
+                            dk,
+                            failure_count,
+                        )
                         if self._rediscover_device(dk):
                             # Re-discovered at new IP, try connecting again
                             lt = self.local_transports.get(dk)  # Get updated transport
@@ -1209,8 +1392,11 @@ class PecronMonitor:
                                 connected = self._connect_local(dk)
                     else:
                         # Auto-discovered device with <5 failures: skip to cloud
-                        log.debug("Local TCP connection failed for %s (auto-discovered, failure #%d) — skipping to cloud",
-                                  dk, failure_count)
+                        log.debug(
+                            "Local TCP connection failed for %s (auto-discovered, failure #%d) — skipping to cloud",
+                            dk,
+                            failure_count,
+                        )
 
                 if lt.connected:
                     try:
@@ -1218,7 +1404,7 @@ class PecronMonitor:
                         if kv:
                             log.debug("Got status via LOCAL TCP for %s", dk)
                             self._merge_device_data(dk, kv)
-                            
+
                             # Only mark as local data if it contains telemetry fields
                             # E3600/E3800 local TCP returns ONLY settings (14 fields), no telemetry
                             # We need to let MQTT cloud data be the primary source for these devices
@@ -1227,8 +1413,11 @@ class PecronMonitor:
                                 self._local_data_keys.add(dk)  # Mark as local data
                                 log.debug("Local TCP data contains telemetry for %s", dk)
                             else:
-                                log.debug("Local TCP data is settings-only for %s (telemetry from cloud)", dk)
-                            
+                                log.debug(
+                                    "Local TCP data is settings-only for %s (telemetry from cloud)",
+                                    dk,
+                                )
+
                             self._process_data(dk, kv, source="LOCAL TCP")
                             # Reset failure counter on successful read
                             self._local_connect_failures[dk] = 0
@@ -1244,8 +1433,7 @@ class PecronMonitor:
                 pkt = build_ttlv_read(self._next_packet_id())
                 topic = f"q/1/d/{cid}/bus"
                 result = self.mqtt_client.publish(topic, pkt, qos=1)
-                log.debug("Published TTLV read to %s (rc=%s, mid=%s)",
-                          topic, result.rc, result.mid)
+                log.debug("Published TTLV read to %s (rc=%s, mid=%s)", topic, result.rc, result.mid)
 
             # If we haven't received MQTT data for this device yet, try REST API.
             # In rest_only mode there is no MQTT or local TCP, so we must re-fetch
@@ -1253,11 +1441,14 @@ class PecronMonitor:
             # in issue #14; otherwise --rest-only stops updating after cycle 1).
             if self.rest_only or dk not in self.latest_data:
                 if self.token_data:  # Only available if not in offline mode
-                    log.debug("Fetching status via REST API for %s (rest_only=%s, cached=%s)...",
-                              dk, self.rest_only, dk in self.latest_data)
+                    log.debug(
+                        "Fetching status via REST API for %s (rest_only=%s, cached=%s)...",
+                        dk,
+                        self.rest_only,
+                        dk in self.latest_data,
+                    )
                     kv = get_device_properties_rest(
-                        self.token_data["token"], self.region,
-                        device["product_key"], dk
+                        self.token_data["token"], self.region, device["product_key"], dk
                     )
                     if kv:
                         log.info("Got status via REST API for %s", dk)
@@ -1320,12 +1511,18 @@ class PecronMonitor:
         kv = self.latest_data.get(device_key, {})
         soc = self._extract_soc(kv)
         if soc is None:
-            log.debug("No SoC observation for %s at offline transition; skipping snapshot",
-                      device_key)
+            log.debug(
+                "No SoC observation for %s at offline transition; skipping snapshot", device_key
+            )
             return
         if soc > threshold:
-            log.debug("Device %s went offline at SoC=%d%% (>%d%% threshold); not a "
-                      "low-battery shutdown — skipping snapshot.", device_key, soc, threshold)
+            log.debug(
+                "Device %s went offline at SoC=%d%% (>%d%% threshold); not a "
+                "low-battery shutdown — skipping snapshot.",
+                device_key,
+                soc,
+                threshold,
+            )
             return
 
         ac_on = self._coerce_switch(kv.get("ac_switch_hm"))
@@ -1343,8 +1540,13 @@ class PecronMonitor:
         except OSError as e:
             log.warning("Could not persist output snapshot for %s: %s", device_key, e)
             return
-        log.info("Snapshotted output state for %s for shutdown-restore "
-                 "(SoC=%d%%, AC=%s, DC=%s)", device_key, soc, ac_on, dc_on)
+        log.info(
+            "Snapshotted output state for %s for shutdown-restore (SoC=%d%%, AC=%s, DC=%s)",
+            device_key,
+            soc,
+            ac_on,
+            dc_on,
+        )
 
     def _on_device_online(self, device_key: str):
         """Called when a `is now online` event arrives. If a snapshot exists
@@ -1365,28 +1567,41 @@ class PecronMonitor:
         max_age = int(cfg.get("snapshot_max_age_seconds", 86400))
         age = snap.age_seconds()
         if age > max_age:
-            log.warning("Discarding stale output snapshot for %s (age %.0fs > max %ds)",
-                        device_key, age, max_age)
+            log.warning(
+                "Discarding stale output snapshot for %s (age %.0fs > max %ds)",
+                device_key,
+                age,
+                max_age,
+            )
             output_state.clear(device_key)
             return
 
         min_offline = int(cfg.get("minimum_offline_seconds", 120))
         last_offline = self._last_offline_at.get(device_key)
         if last_offline is not None and (now - last_offline) < min_offline:
-            log.info("Online transition for %s within %.1fs of last offline (<%d "
-                     "minimum) — too brief to be a real shutdown, skipping restore.",
-                     device_key, now - last_offline, min_offline)
+            log.info(
+                "Online transition for %s within %.1fs of last offline (<%d "
+                "minimum) — too brief to be a real shutdown, skipping restore.",
+                device_key,
+                now - last_offline,
+                min_offline,
+            )
             return
 
         existing = self._restore_threads.get(device_key)
         if existing is not None and existing.is_alive():
-            log.debug("Restore worker already running for %s; skipping duplicate spawn",
-                      device_key)
+            log.debug("Restore worker already running for %s; skipping duplicate spawn", device_key)
             return
 
-        log.info("Starting restore worker for %s — target AC=%s, DC=%s "
-                 "(snapshot taken %.0fs ago at SoC=%d%%)",
-                 device_key, snap.ac_on, snap.dc_on, age, snap.soc_at_offline)
+        log.info(
+            "Starting restore worker for %s — target AC=%s, DC=%s "
+            "(snapshot taken %.0fs ago at SoC=%d%%)",
+            device_key,
+            snap.ac_on,
+            snap.dc_on,
+            age,
+            snap.soc_at_offline,
+        )
         t = threading.Thread(
             target=self._restore_outputs_worker,
             args=(device_key, bool(snap.ac_on), bool(snap.dc_on)),
@@ -1418,22 +1633,23 @@ class PecronMonitor:
             current_dc = self._coerce_switch(kv.get("dc_switch_hm"))
 
             if current_ac == target_ac and current_dc == target_dc:
-                log.info("Restore complete for %s: AC=%s DC=%s", device_key,
-                         target_ac, target_dc)
+                log.info("Restore complete for %s: AC=%s DC=%s", device_key, target_ac, target_dc)
                 output_state.clear(device_key)
                 return
 
             if current_ac != target_ac:
-                log.info("Restore: setting AC=%s on %s (currently %s)",
-                         target_ac, device_key, current_ac)
+                log.info(
+                    "Restore: setting AC=%s on %s (currently %s)", target_ac, device_key, current_ac
+                )
                 try:
                     self.set_ac(device_key, target_ac)
                 except Exception as e:
                     log.warning("Restore: set_ac failed for %s: %s", device_key, e)
 
             if current_dc != target_dc:
-                log.info("Restore: setting DC=%s on %s (currently %s)",
-                         target_dc, device_key, current_dc)
+                log.info(
+                    "Restore: setting DC=%s on %s (currently %s)", target_dc, device_key, current_dc
+                )
                 try:
                     self.set_dc(device_key, target_dc)
                 except Exception as e:
@@ -1442,11 +1658,16 @@ class PecronMonitor:
             time.sleep(interval)
 
         kv = self.latest_data.get(device_key, {}) or {}
-        log.error("Restore for %s timed out after %ds; clearing snapshot. "
-                  "Target was AC=%s DC=%s; current is AC=%s DC=%s",
-                  device_key, timeout, target_ac, target_dc,
-                  self._coerce_switch(kv.get("ac_switch_hm")),
-                  self._coerce_switch(kv.get("dc_switch_hm")))
+        log.error(
+            "Restore for %s timed out after %ds; clearing snapshot. "
+            "Target was AC=%s DC=%s; current is AC=%s DC=%s",
+            device_key,
+            timeout,
+            target_ac,
+            target_dc,
+            self._coerce_switch(kv.get("ac_switch_hm")),
+            self._coerce_switch(kv.get("dc_switch_hm")),
+        )
         output_state.clear(device_key)
 
     def _token_needs_refresh(self) -> bool:
@@ -1498,6 +1719,37 @@ class PecronMonitor:
             log.warning("Cloud recovered but MQTT/local setup hit an error: %s", e)
         return True
 
+    def _recover_mqtt_connection(self) -> bool:
+        """Rebuild the MQTT client after broker CONNACK failures."""
+        if self.offline_mode or getattr(self, "rest_only", False):
+            return False
+        if self._mqtt_connect_failures == 0:
+            return False
+
+        interval = self.config.get("mqtt_reconnect_interval", 60)
+        now = time.time()
+        if now - self._last_mqtt_rebuild_at < interval:
+            return False
+        self._last_mqtt_rebuild_at = now
+
+        failures = self._mqtt_connect_failures
+        log.warning("Rebuilding MQTT client after %d connection failure(s)", failures)
+        try:
+            if self.mqtt_client:
+                self.mqtt_client.loop_stop()
+                self.mqtt_client.disconnect()
+        except Exception as e:
+            log.debug("Ignoring MQTT disconnect error during rebuild: %s", e)
+
+        self._mqtt_connect_failures = 0
+        try:
+            self.connect_mqtt()
+        except Exception as e:
+            self._mqtt_connect_failures = failures
+            log.warning("MQTT rebuild failed: %s", e)
+            return False
+        return True
+
     # --- MQTT connection ---
 
     def connect_mqtt(self):
@@ -1511,8 +1763,10 @@ class PecronMonitor:
 
         client_id = f"qu_{self.token_data['uid']}_{int(time.time() * 1000)}"
         self.mqtt_client = mqtt.Client(
-            client_id=client_id, transport="websockets",
-            protocol=mqtt.MQTTv311, callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            client_id=client_id,
+            transport="websockets",
+            protocol=mqtt.MQTTv311,
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         )
         self.mqtt_client.ws_set_options(path=self.region["mqtt_path"])
         self.mqtt_client.tls_set()
@@ -1520,8 +1774,9 @@ class PecronMonitor:
         self.mqtt_client.on_connect = self._on_connect
         self.mqtt_client.on_message = self._on_message
         self.mqtt_client.reconnect_delay_set(min_delay=1, max_delay=60)
-        log.info("Connecting to MQTT broker %s:%d...",
-                 self.region["mqtt_host"], self.region["mqtt_port"])
+        log.info(
+            "Connecting to MQTT broker %s:%d...", self.region["mqtt_host"], self.region["mqtt_port"]
+        )
         self.mqtt_client.connect(self.region["mqtt_host"], self.region["mqtt_port"])
         self.mqtt_client.loop_start()
 
@@ -1530,17 +1785,17 @@ class PecronMonitor:
     def run(self, enable_ha=False, force_offline=False):
         self._running = True
 
-        # Fail fast on a broken poll_interval before any cloud login or MQTT
-        # connection — this is config-only validation and shouldn't cost a
-        # round-trip to fail.
+        # Fail fast on a broken cloud poll_interval before any cloud login or
+        # MQTT connection. Local/offline mode is not subject to the cloud quota.
         poll_interval = self.config.get("poll_interval", RECOMMENDED_POLL_INTERVAL)
-        _validate_poll_interval(poll_interval)
+        _validate_poll_interval_for_mode(poll_interval, force_offline)
 
         self.authenticate(force_offline=force_offline)
         self.connect_mqtt()
 
         if enable_ha:
             from ha_bridge import HomeAssistantBridge
+
             ha_config = self.config.get("homeassistant", {})
             if ha_config.get("enabled") or enable_ha:
                 self.ha_bridge = HomeAssistantBridge(ha_config, self.devices)
@@ -1556,7 +1811,9 @@ class PecronMonitor:
         # Only useful when cloud MQTT is connected — skip in offline/local-only mode.
         high_freq_warmup_seconds = self.config.get("high_freq_warmup_seconds", 60)
         if self.mqtt_client and high_freq_warmup_seconds > 0:
-            log.info("Enabling high-freq reporting for %ds warm-up period...", high_freq_warmup_seconds)
+            log.info(
+                "Enabling high-freq reporting for %ds warm-up period...", high_freq_warmup_seconds
+            )
             self._enable_high_freq_reporting()
             warmup_start = time.time()
 
@@ -1571,7 +1828,10 @@ class PecronMonitor:
                 if self.mqtt_client and high_freq_warmup_seconds > 0:
                     elapsed = time.time() - warmup_start
                     if elapsed >= high_freq_warmup_seconds:
-                        log.info("Warm-up complete (%.0fs) — disabling high-freq to preserve cloud quota", elapsed)
+                        log.info(
+                            "Warm-up complete (%.0fs) — disabling high-freq to preserve cloud quota",
+                            elapsed,
+                        )
                         self._disable_high_freq_reporting()
                         high_freq_warmup_seconds = 0  # Prevent re-disabling on every loop
 
@@ -1590,6 +1850,7 @@ class PecronMonitor:
                     # Issue #23: if we previously fell back to offline due to a
                     # transient cloud failure, periodically attempt to recover.
                     self._try_cloud_recovery()
+                    self._recover_mqtt_connection()
 
                 # Issue #23 (secondary): retry local HA MQTT if it failed to
                 # connect at startup or was lost.
@@ -1623,8 +1884,10 @@ class PecronMonitor:
         effective = [d for d in self.devices if self._high_freq_effective(d)]
         skipped = [d for d in self.devices if not self._high_freq_effective(d)]
         for d in skipped:
-            log.debug("Skipping high-freq enable for %s (ineffective on this model, issue #14)",
-                      d.get("device_name") or d["device_key"])
+            log.debug(
+                "Skipping high-freq enable for %s (ineffective on this model, issue #14)",
+                d.get("device_name") or d["device_key"],
+            )
         for i, d in enumerate(effective):
             dk = d["device_key"]
             try:
@@ -1677,7 +1940,8 @@ class PecronMonitor:
         else:
             log.warning(
                 "HA command for unknown control %r on %s -- no slug->TSL mapping (issue #54)",
-                control, device_key,
+                control,
+                device_key,
             )
 
     def one_shot_command(self, ac=None, dc=None, force_offline=False):
@@ -1726,7 +1990,7 @@ class PecronMonitor:
                 self._enable_high_freq_reporting(stagger=1)
                 time.sleep(2)  # Give devices time to switch modes
         self._request_status()
-        
+
         # E3600/E3800 sends telemetry in alternating MQTT packets at ~10-15s intervals.
         # Use an active polling loop: check every 5s, re-request for incomplete devices,
         # give up after max_wait seconds total.
@@ -1735,28 +1999,34 @@ class PecronMonitor:
         elapsed = 0
         all_device_keys = {d["device_key"] for d in self.devices}
         last_request_time = 0
-        
-        log.info("Collecting data (up to %ds for multi-packet devices like E3600/E3800)...", max_wait)
-        
+
+        log.info(
+            "Collecting data (up to %ds for multi-packet devices like E3600/E3800)...", max_wait
+        )
+
         while elapsed < max_wait:
             time.sleep(check_interval)
             elapsed += check_interval
-            
+
             # Check which devices still need telemetry
             incomplete = []
             for dk in all_device_keys:
                 kv = self.latest_data.get(dk, {})
                 if not self._has_telemetry_fields(kv):
                     incomplete.append(dk)
-            
+
             if not incomplete:
                 log.info("All devices have telemetry data (%ds)", elapsed)
                 break
-            
+
             # Re-request data for incomplete devices every 10s
             if elapsed - last_request_time >= 10:
-                log.info("Still waiting for telemetry from: %s (%ds/%ds)...",
-                         ", ".join(incomplete), elapsed, max_wait)
+                log.info(
+                    "Still waiting for telemetry from: %s (%ds/%ds)...",
+                    ", ".join(incomplete),
+                    elapsed,
+                    max_wait,
+                )
                 # Re-publish MQTT read requests for incomplete devices
                 if self.mqtt_client:
                     for dk in incomplete:
@@ -1766,10 +2036,13 @@ class PecronMonitor:
                             pkt = build_ttlv_read(self._next_packet_id())
                             self.mqtt_client.publish(f"q/1/d/{cid}/bus", pkt, qos=1)
                 last_request_time = elapsed
-        
+
         if elapsed >= max_wait:
-            incomplete = [dk for dk in all_device_keys 
-                         if not self._has_telemetry_fields(self.latest_data.get(dk, {}))]
+            incomplete = [
+                dk
+                for dk in all_device_keys
+                if not self._has_telemetry_fields(self.latest_data.get(dk, {}))
+            ]
             if incomplete:
                 log.warning("Timed out waiting for telemetry from: %s", ", ".join(incomplete))
 
@@ -1809,8 +2082,10 @@ class PecronMonitor:
                     total_out = ac_out + dc_out
 
             # Compute net power drain on host battery
-            net_drain = float(_get_kv(kv, SENSOR_FIELDS["voltage"], 0)) * float(_get_kv(kv, SENSOR_FIELDS["current"], 0))
-            net_drain_label = f"Net Drain: " if net_drain < 0 else "Net Charge:"
+            net_drain = float(_get_kv(kv, SENSOR_FIELDS["voltage"], 0)) * float(
+                _get_kv(kv, SENSOR_FIELDS["current"], 0)
+            )
+            net_drain_label = "Net Drain: " if net_drain < 0 else "Net Charge:"
 
             remain = int(_get_kv(kv, SENSOR_FIELDS["remain_time"], 0))
             # Check if remain_time is unreliable (local transports often return bogus values)
@@ -1821,7 +2096,9 @@ class PecronMonitor:
                 remain_str = f"{remain // 60}h {remain % 60}m" if remain > 0 else "N/A"
 
             charge_remain = int(_get_kv(kv, SENSOR_FIELDS["remain_charging_time"], 0))
-            charge_remain_str = f"{charge_remain // 60}h {charge_remain % 60}m" if charge_remain > 0 else "N/A"
+            charge_remain_str = (
+                f"{charge_remain // 60}h {charge_remain % 60}m" if charge_remain > 0 else "N/A"
+            )
 
             # Compute estimated time-to-empty/full from capacity table + battery % + net battery power.
             model_info = self._find_device(dk)
@@ -1847,7 +2124,11 @@ class PecronMonitor:
                         est_time_str = _fmt_hours((capacity_wh - current_charge_wh) / net_power_w)
 
             status_value = int(_get_kv(kv, SENSOR_FIELDS["device_status_hm"], -1))
-            status_str = DEVICE_STATUS_LABELS.get(int(status_value), str(status_value)) if status_value >= 0 else "Unknown"
+            status_str = (
+                DEVICE_STATUS_LABELS.get(int(status_value), str(status_value))
+                if status_value >= 0
+                else "Unknown"
+            )
 
             print(f"\n{'=' * 50}")
             print(f"Device: {dk}")
@@ -1870,7 +2151,9 @@ class PecronMonitor:
                 print("Capacity:      Unknown (not in BATTERY_CAPACITY_WH)")
             print(f"Total Input:   {total_in}W")
             print(f"Total Output:  {total_out}W")
-            print(f"AC Output:     {_get_kv(kv, SENSOR_FIELDS['ac_output_power'], 0)}W @ {_get_kv(kv, SENSOR_FIELDS['ac_output_voltage'], '?')}V")
+            print(
+                f"AC Output:     {_get_kv(kv, SENSOR_FIELDS['ac_output_power'], 0)}W @ {_get_kv(kv, SENSOR_FIELDS['ac_output_voltage'], '?')}V"
+            )
             print(f"DC Output:     {_get_kv(kv, SENSOR_FIELDS['dc_output_power'], 0)}W")
             print(f"AC Input:      {_get_kv(kv, SENSOR_FIELDS['ac_input_power'], 0)}W")
             print(f"DC Input:      {_get_kv(kv, SENSOR_FIELDS['dc_input_power'], 0)}W")
@@ -1887,14 +2170,20 @@ class PecronMonitor:
                 if pack_status_val != 4:
                     # Fallback: some devices report battery % in charging_pack_status instead
                     try:
-                        pack_battery = int(float(pack.get('charging_pack_battery', 0)))
+                        pack_battery = int(float(pack.get("charging_pack_battery", 0)))
                     except (ValueError, TypeError):
                         pack_battery = 0
                     if pack_battery == 0 and 5 <= pack_status_val <= 100:
                         pack_battery = pack_status_val
-                        log.debug("Using charging_pack_status (%d%%) as battery for pack %d", pack_status_val, i)
-                    print(f"Pack {i}:        {pack_battery if pack_battery > 0 else '?'}% "
-                          f"{float(pack.get('charging_pack_voltage', 0)):.1f}V")
+                        log.debug(
+                            "Using charging_pack_status (%d%%) as battery for pack %d",
+                            pack_status_val,
+                            i,
+                        )
+                    print(
+                        f"Pack {i}:        {pack_battery if pack_battery > 0 else '?'}% "
+                        f"{float(pack.get('charging_pack_voltage', 0)):.1f}V"
+                    )
 
         if not self.latest_data:
             print("No data received — device may be offline.")

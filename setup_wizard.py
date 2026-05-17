@@ -11,10 +11,8 @@ import subprocess
 import yaml
 from pathlib import Path
 
-from cloud_api import (
-    login, get_user_devices, get_product_catalog, verify_device,
-    get_product_tsl
-)
+from cloud_api import login, get_user_devices, get_product_catalog, verify_device, get_product_tsl
+
 try:
     from local_transport import get_auth_key
 except ImportError:
@@ -22,23 +20,33 @@ except ImportError:
 from constants import REGIONS
 from lan_scan import _setup_lan_discovery, discover_devices
 
-# Local TCP transport (LAN-first, cloud-fallback)
-try:
-    from local_transport import LocalTransport
-    HAS_LOCAL = True
-except ImportError:
-    HAS_LOCAL = False
+HAS_LOCAL = get_auth_key is not None
 
 try:
-    from local_transport import BLETransport, scan_ble_devices, HAS_BLE
+    from local_transport import scan_ble_devices, HAS_BLE
 except ImportError:
     HAS_BLE = False
 
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
 
+def _warn_if_config_is_readable(path: Path) -> None:
+    """Warn when an existing config may expose credentials to other users."""
+    if os.name != "posix" or not path.exists():
+        return
+    if path.stat().st_mode & 0o077:
+        print(f"⚠️  {path} is readable by group/other users; run chmod 600 {path}")
+
+
+def _secure_config_permissions(path: Path) -> None:
+    """Restrict config.yaml to the current user on POSIX systems."""
+    if os.name == "posix":
+        os.chmod(path, 0o600)
+
+
 def setup_wizard(auto=False):
     print("\n🔋 Pecron Monitor Setup\n")
+    _warn_if_config_is_readable(CONFIG_PATH)
 
     if auto:
         # Read from environment variables
@@ -57,7 +65,7 @@ def setup_wizard(auto=False):
         print(f"Auto mode: email={email}, region={region}")
     else:
         email = input("Pecron account email: ").strip()
-        password = input("Pecron account password: ").strip()
+        password = getpass.getpass("Pecron account password: ").strip()
 
         print("\nRegions:")
         print("  na — North America")
@@ -96,7 +104,10 @@ def setup_wizard(auto=False):
             print(f"  {len(account_devices) + 1}. Skip — enter device key manually instead")
             print("")
             default_sel = ",".join(str(i + 1) for i in range(len(account_devices)))
-            choice = input(f"Select devices to monitor (e.g. 1 or 1,2) [{default_sel}]: ").strip() or default_sel
+            choice = (
+                input(f"Select devices to monitor (e.g. 1 or 1,2) [{default_sel}]: ").strip()
+                or default_sel
+            )
 
             for c in choice.split(","):
                 c = c.strip()
@@ -211,7 +222,7 @@ def setup_wizard(auto=False):
             try:
                 auth_key = get_auth_key(token_data["token"], REGIONS[region], pk, dk)
                 d["auth_key"] = auth_key
-                print(f" ✅")
+                print(" ✅")
             except Exception as e:
                 print(f" ⚠️  ({e})")
 
@@ -237,9 +248,9 @@ def setup_wizard(auto=False):
                 print(f"{'Device':<30} {'IP Address':<16} {'Auth Key':<10}")
                 print("-" * 60)
                 for d in devices:
-                    name = d.get('name', d['device_key'])[:28]
-                    ip = d.get('lan_ip', 'Not found')
-                    auth = '✅' if d.get('auth_key') else '❌'
+                    name = d.get("name", d["device_key"])[:28]
+                    ip = d.get("lan_ip", "Not found")
+                    auth = "✅" if d.get("auth_key") else "❌"
                     print(f"{name:<30} {ip:<16} {auth:<10}")
         else:
             print("\n--- Local Monitoring (optional) ---")
@@ -257,17 +268,23 @@ def setup_wizard(auto=False):
                 for d in devices:
                     if d.get("lan_ip"):
                         continue  # Already configured
-                    manual = input(f"  Enter LAN IP for {d.get('name', d['device_key'])} (or press Enter to skip): ").strip()
+                    manual = input(
+                        f"  Enter LAN IP for {d.get('name', d['device_key'])} (or press Enter to skip): "
+                    ).strip()
                     if manual:
                         d["lan_ip"] = manual
                         # Fetch auth key if not already cached
                         if not d.get("auth_key"):
                             try:
-                                print(f"  Fetching encryption key...", end="", flush=True)
-                                auth_key = get_auth_key(token_data["token"], REGIONS[region],
-                                                       d["product_key"], d["device_key"])
+                                print("  Fetching encryption key...", end="", flush=True)
+                                auth_key = get_auth_key(
+                                    token_data["token"],
+                                    REGIONS[region],
+                                    d["product_key"],
+                                    d["device_key"],
+                                )
                                 d["auth_key"] = auth_key
-                                print(f" ✅")
+                                print(" ✅")
                             except Exception as e:
                                 print(f" ❌ ({e})")
 
@@ -301,8 +318,8 @@ def setup_wizard(auto=False):
         print("\n--- Auto mode defaults ---")
         print(f"  Poll interval: {poll}s")
         print(f"  Battery alert threshold: {threshold}%")
-        print(f"  Telegram alerts: disabled")
-        print(f"  Home Assistant: disabled")
+        print("  Telegram alerts: disabled")
+        print("  Home Assistant: disabled")
     else:
         poll = input("\nPoll interval in seconds [70]: ").strip() or "70"
         threshold = input("Low battery alert threshold % [20]: ").strip() or "20"
@@ -320,20 +337,27 @@ def setup_wizard(auto=False):
         if ha_enabled:
             ha_host = input("HA MQTT broker host [localhost]: ").strip() or "localhost"
             ha_user = input("HA MQTT username (optional): ").strip()
-            ha_pw = input("HA MQTT password (optional): ").strip()
+            ha_pw = getpass.getpass("HA MQTT password (optional): ").strip()
 
     config = {
-        "email": email, "password": password, "region": region,
-        "devices": devices, "poll_interval": int(poll),
+        "email": email,
+        "password": password,
+        "region": region,
+        "devices": devices,
+        "poll_interval": int(poll),
         "alerts": {
-            "low_battery_percent": int(threshold), "cooldown_minutes": 30,
+            "low_battery_percent": int(threshold),
+            "cooldown_minutes": 30,
             "telegram": {"enabled": tg_enabled, "bot_token": tg_token, "chat_id": tg_chat},
             "ntfy": {"enabled": False, "url": ""},
             "webhook": {"enabled": False, "url": ""},
         },
         "homeassistant": {
-            "enabled": ha_enabled, "mqtt_host": ha_host or "localhost",
-            "mqtt_port": 1883, "mqtt_user": ha_user, "mqtt_password": ha_pw,
+            "enabled": ha_enabled,
+            "mqtt_host": ha_host or "localhost",
+            "mqtt_port": 1883,
+            "mqtt_user": ha_user,
+            "mqtt_password": ha_pw,
             "discovery_prefix": "homeassistant",
         },
         "rules": [
@@ -363,6 +387,7 @@ def setup_wizard(auto=False):
 
     with open(CONFIG_PATH, "w") as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    _secure_config_permissions(CONFIG_PATH)
 
     print(f"\n✅ Config saved to {CONFIG_PATH}")
 
@@ -370,8 +395,8 @@ def setup_wizard(auto=False):
     if not auto:
         _setup_systemd_service()
 
-        print("\nRun 'python pecron_monitor.py' to start monitoring!")
-        print("Run 'python pecron_monitor.py --ac on' to test AC control!")
+        print("\nRun 'pecron-monitor' to start monitoring!")
+        print("Run 'pecron-monitor --ac on' to test AC control!")
     else:
         print("\n✅ Auto setup complete!")
 
@@ -383,7 +408,9 @@ def _setup_systemd_service():
         return
 
     print("\n--- Systemd Service (optional) ---")
-    install_service = input("Install as a systemd service (auto-start on boot)? [y/N]: ").strip().lower() == "y"
+    install_service = (
+        input("Install as a systemd service (auto-start on boot)? [y/N]: ").strip().lower() == "y"
+    )
     if not install_service:
         return
 
@@ -421,7 +448,7 @@ WantedBy=multi-user.target
     # Make sure run.sh exists and is executable
     if not run_sh.exists():
         print(f"  ⚠️  run.sh not found at {run_sh} — skipping service install.")
-        print(f"  Make sure run.sh is in the repo root directory.")
+        print("  Make sure run.sh is in the repo root directory.")
         return
     if not os.access(run_sh, os.X_OK):
         os.chmod(run_sh, 0o755)
@@ -431,24 +458,26 @@ WantedBy=multi-user.target
     with open(generated_path, "w") as f:
         f.write(service_content)
 
-    print(f"\n  Generated service file:")
+    print("\n  Generated service file:")
     print(f"    User: {custom_user}")
     print(f"    WorkingDirectory: {custom_dir}")
     print(f"    ExecStart: {custom_dir}/run.sh")
 
-    do_install = input("\n  Install to /etc/systemd/system/? (requires sudo) [Y/n]: ").strip().lower() != "n"
+    do_install = (
+        input("\n  Install to /etc/systemd/system/? (requires sudo) [Y/n]: ").strip().lower() != "n"
+    )
     if not do_install:
         print(f"  Service file saved to: {generated_path}")
-        print(f"  To install manually:")
+        print("  To install manually:")
         print(f"    sudo cp {generated_path} /etc/systemd/system/pecron-monitor.service")
-        print(f"    sudo systemctl daemon-reload")
-        print(f"    sudo systemctl enable --now pecron-monitor")
+        print("    sudo systemctl daemon-reload")
+        print("    sudo systemctl enable --now pecron-monitor")
         return
 
     try:
         subprocess.run(
             ["sudo", "cp", str(generated_path), "/etc/systemd/system/pecron-monitor.service"],
-            check=True
+            check=True,
         )
         subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)
 
@@ -465,7 +494,9 @@ WantedBy=multi-user.target
     except subprocess.CalledProcessError as e:
         print(f"  ❌ Installation failed: {e}")
         print(f"  Service file saved to: {generated_path}")
-        print(f"  Install manually with: sudo cp {generated_path} /etc/systemd/system/pecron-monitor.service")
+        print(
+            f"  Install manually with: sudo cp {generated_path} /etc/systemd/system/pecron-monitor.service"
+        )
     finally:
         # Clean up generated file if it was installed
         if Path("/etc/systemd/system/pecron-monitor.service").exists():

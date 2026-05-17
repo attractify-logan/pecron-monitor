@@ -31,6 +31,7 @@ log = logging.getLogger("pecron")
 # TTLV codec (local TCP variant — AES-CBC encrypted payloads)
 # ===========================================================================
 
+
 def _ttlv_crc(data: bytes) -> int:
     return sum(data) & 0xFF
 
@@ -63,9 +64,7 @@ def _ttlv_build_packet(cmd: int, payload: bytes = b"", packet_id: int = 1) -> by
     inner = struct.pack(">HH", packet_id, cmd) + payload
     crc = _ttlv_crc(inner)
     length = len(inner) + 1
-    return _ttlv_byte_stuff(
-        b"\xaa\xaa" + struct.pack(">H", length) + bytes([crc]) + inner
-    )
+    return _ttlv_byte_stuff(b"\xaa\xaa" + struct.pack(">H", length) + bytes([crc]) + inner)
 
 
 def _ttlv_build_bytes_field(tag_id: int, data: bytes) -> bytes:
@@ -80,7 +79,7 @@ def _ttlv_parse_packet(data: bytes) -> dict:
     pkt_len = struct.unpack(">H", data[2:4])[0]
     pid = struct.unpack(">H", data[5:7])[0]
     cmd = struct.unpack(">H", data[7:9])[0]
-    payload = data[9:4 + pkt_len] if len(data) >= 4 + pkt_len else data[9:]
+    payload = data[9 : 4 + pkt_len] if len(data) >= 4 + pkt_len else data[9:]
     return {"cmd": cmd, "packet_id": pid, "payload": payload}
 
 
@@ -89,7 +88,7 @@ def _ttlv_parse_fields(payload: bytes) -> list:
     fields = []
     i = 0
     while i < len(payload) - 1:
-        tag_word = struct.unpack(">H", payload[i:i + 2])[0]
+        tag_word = struct.unpack(">H", payload[i : i + 2])[0]
         tag_id = (tag_word >> 3) & 0x1FFF
         tag_type = tag_word & 0x07
         i += 2
@@ -106,24 +105,24 @@ def _ttlv_parse_fields(payload: bytes) -> list:
             byte_count = (meta & 0x07) + 1
             if i + byte_count > len(payload):
                 break
-            val = int.from_bytes(payload[i:i + byte_count], "big")
+            val = int.from_bytes(payload[i : i + byte_count], "big")
             i += byte_count
             if sign:
                 val = -val
             if decimals > 0:
-                val = val / (10 ** decimals)
+                val = val / (10**decimals)
             fields.append((tag_id, "NUM", val))
         elif tag_type in (3, 5):  # Bytes
             if i + 2 > len(payload):
                 break
-            dlen = struct.unpack(">H", payload[i:i + 2])[0]
+            dlen = struct.unpack(">H", payload[i : i + 2])[0]
             i += 2
-            fields.append((tag_id, "BYTES", payload[i:i + dlen]))
+            fields.append((tag_id, "BYTES", payload[i : i + dlen]))
             i += dlen
         elif tag_type == 4:  # Struct/Array header
             if i + 2 > len(payload):
                 break
-            count = struct.unpack(">H", payload[i:i + 2])[0]
+            count = struct.unpack(">H", payload[i : i + 2])[0]
             i += 2
             fields.append((tag_id, "STRUCT", count))
         else:
@@ -321,10 +320,18 @@ def _fields_to_kv(fields: list, controls: dict = None) -> dict:
 # LocalTransport
 # ===========================================================================
 
+
 class LocalTransport:
     """TCP transport for Pecron devices on LAN (port 6607)."""
-    def __init__(self, device_ip: str, auth_key_b64: str, timeout: float = 10.0,
-                 device_key: str = None, controls: dict = None):
+
+    def __init__(
+        self,
+        device_ip: str,
+        auth_key_b64: str,
+        timeout: float = 10.0,
+        device_key: str = None,
+        controls: dict = None,
+    ):
         self.device_ip = device_ip
         self.device_port = 6607
         self.auth_key = base64.b64decode(auth_key_b64)
@@ -390,9 +397,7 @@ class LocalTransport:
 
             # Step 2: Login with SHA-256 hash
             auth_hex = self.auth_key.hex()
-            login_hash = hashlib.sha256(
-                f"{auth_hex};{random_str}".encode("utf-8")
-            ).hexdigest()
+            login_hash = hashlib.sha256(f"{auth_hex};{random_str}".encode("utf-8")).hexdigest()
             login_payload = _ttlv_build_bytes_field(2, login_hash.encode("utf-8"))
             pkt = _ttlv_build_packet(0x7034, login_payload, self._next_pid())
             self._sock.sendall(pkt)
@@ -438,10 +443,10 @@ class LocalTransport:
         self._encrypted = False
         self._iv = None
         # Reset read flags for next connection
-        if hasattr(self, '_first_read_done'):
-            delattr(self, '_first_read_done')
-        if hasattr(self, '_retried_read'):
-            delattr(self, '_retried_read')
+        if hasattr(self, "_first_read_done"):
+            delattr(self, "_first_read_done")
+        if hasattr(self, "_retried_read"):
+            delattr(self, "_retried_read")
         if self._sock:
             try:
                 self._sock.close()
@@ -510,7 +515,7 @@ class LocalTransport:
             try:
                 # E3800LFP quirk: Add delay after handshake to prevent connection drop
                 # (some firmware versions close the socket if read comes too soon)
-                if not hasattr(self, '_first_read_done'):
+                if not hasattr(self, "_first_read_done"):
                     time.sleep(0.5)
                     self._first_read_done = True
 
@@ -547,7 +552,9 @@ class LocalTransport:
                                 fields = _ttlv_parse_fields(decrypted)
                                 all_fields.extend(fields)
                                 packets_read += 1
-                                log.debug("Read packet %d with %d fields", packets_read, len(fields))
+                                log.debug(
+                                    "Read packet %d with %d fields", packets_read, len(fields)
+                                )
                         else:
                             # Unknown command, stop reading
                             break
@@ -565,7 +572,7 @@ class LocalTransport:
                 if not all_fields:
                     # E3800 quirk: Sometimes device needs time to prepare data after handshake
                     # Retry once with a longer delay
-                    if not hasattr(self, '_retried_read'):
+                    if not hasattr(self, "_retried_read"):
                         log.debug("No data fields in first read, retrying in 1s...")
                         self._retried_read = True
                         time.sleep(1.0)
@@ -590,7 +597,11 @@ class LocalTransport:
                                         fields = _ttlv_parse_fields(decrypted)
                                         all_fields.extend(fields)
                                         packets_read += 1
-                                        log.debug("Retry: read packet %d with %d fields", packets_read, len(fields))
+                                        log.debug(
+                                            "Retry: read packet %d with %d fields",
+                                            packets_read,
+                                            len(fields),
+                                        )
                                 else:
                                     break
                             except socket.timeout:
@@ -604,7 +615,9 @@ class LocalTransport:
                         log.warning("No data fields in local read response (even after retry)")
                         return {}
 
-                log.debug("Collected %d total fields from %d packets", len(all_fields), packets_read)
+                log.debug(
+                    "Collected %d total fields from %d packets", len(all_fields), packets_read
+                )
                 kv = _fields_to_kv(all_fields, controls=self.controls)
                 return kv
 
@@ -613,7 +626,9 @@ class LocalTransport:
                 self._connected = False
                 return {}
 
-    def send_control(self, data_point_id: int, value, ctrl_type: str = "BOOL", verify: bool = True) -> bool:
+    def send_control(
+        self, data_point_id: int, value, ctrl_type: str = "BOOL", verify: bool = True
+    ) -> bool:
         """Send a control command over local TCP and (by default) verify it took effect.
 
         Returns True only when a post-write read-back confirms the data point
@@ -682,7 +697,8 @@ class LocalTransport:
             log.warning(
                 "data_point_id=%d not in controls map for %s; cannot verify write, "
                 "falling back to best-effort success",
-                data_point_id, self.device_key,
+                data_point_id,
+                self.device_key,
             )
             return True
 
@@ -704,7 +720,8 @@ class LocalTransport:
         if actual is None:
             log.warning(
                 "Read-back missing field %s; cannot confirm write of value=%r",
-                field, expected_value,
+                field,
+                expected_value,
             )
             return False
 
@@ -712,7 +729,9 @@ class LocalTransport:
             log.warning(
                 "Write to %s not confirmed: requested=%r actual=%r; device may have "
                 "rejected the write or watchdog-reset (see issue #46)",
-                field, expected_value, actual,
+                field,
+                expected_value,
+                actual,
             )
             return False
 
@@ -753,6 +772,7 @@ def _control_values_equal(expected, actual, ctrl_type: str) -> bool:
 
 try:
     import pexpect
+
     HAS_BLE = True
 except ImportError:
     HAS_BLE = False
@@ -772,9 +792,14 @@ class BLETransport:
     Requires: pexpect (pip install pexpect), gatttool (part of bluez package)
     """
 
-    def __init__(self, auth_key_b64: str, device_address: str = None,
-                 device_key: str = None, scan_timeout: float = 10.0,
-                 controls: dict = None):
+    def __init__(
+        self,
+        auth_key_b64: str,
+        device_address: str = None,
+        device_key: str = None,
+        scan_timeout: float = 10.0,
+        controls: dict = None,
+    ):
         if not HAS_BLE:
             raise ImportError("pexpect is required for BLE transport: pip install pexpect")
 
@@ -786,9 +811,9 @@ class BLETransport:
 
         self._ble_suffix = device_key[-4:].upper() if device_key else None
 
-        self._gt = None          # pexpect gatttool process
-        self._iv = None          # AES IV (from handshake)
-        self._iv_str = None      # Raw IV string
+        self._gt = None  # pexpect gatttool process
+        self._iv = None  # AES IV (from handshake)
+        self._iv_str = None  # Raw IV string
         self._encrypted = False
         self._packet_id = 0
         self._lock = threading.Lock()
@@ -808,18 +833,18 @@ class BLETransport:
     def _collect_indications(self, wait: float = 3.0, extra_wait: float = 3.0) -> bytes:
         """Collect all BLE indication data from gatttool output."""
         time.sleep(wait)
-        all_output = self._gt.before or ''
+        all_output = self._gt.before or ""
         try:
             while True:
-                self._gt.expect(r'value:.*', timeout=extra_wait)
-                all_output += (self._gt.before or '') + (self._gt.after or '')
+                self._gt.expect(r"value:.*", timeout=extra_wait)
+                all_output += (self._gt.before or "") + (self._gt.after or "")
         except (pexpect.TIMEOUT, pexpect.EOF):
             pass
 
         hex_data = ""
-        for m in re.finditer(r'value:\s*([0-9a-f ]+)', all_output, re.I):
-            hex_data += m.group(1).replace(' ', '')
-        return bytes.fromhex(hex_data) if hex_data else b''
+        for m in re.finditer(r"value:\s*([0-9a-f ]+)", all_output, re.I):
+            hex_data += m.group(1).replace(" ", "")
+        return bytes.fromhex(hex_data) if hex_data else b""
 
     def _parse_all_packets(self, raw: bytes) -> list:
         """Split concatenated indication data into individual TTLV packets."""
@@ -827,10 +852,10 @@ class BLETransport:
         i = 0
         while i < len(raw) - 4:
             if raw[i] == 0xAA and raw[i + 1] == 0xAA:
-                pkt_len = struct.unpack('>H', raw[i + 2:i + 4])[0]
+                pkt_len = struct.unpack(">H", raw[i + 2 : i + 4])[0]
                 total = 4 + pkt_len
                 if i + total <= len(raw):
-                    packets.append(_ttlv_parse_packet(raw[i:i + total]))
+                    packets.append(_ttlv_parse_packet(raw[i : i + total]))
                 i += total
             else:
                 i += 1
@@ -838,9 +863,9 @@ class BLETransport:
 
     def _write_and_expect(self, hex_data: str, timeout: float = 5.0) -> bool:
         """Write to characteristic and expect 'successfully'."""
-        self._gt.sendline(f'char-write-req {BLE_WRITE_HANDLE} {hex_data}')
+        self._gt.sendline(f"char-write-req {BLE_WRITE_HANDLE} {hex_data}")
         try:
-            self._gt.expect('successfully', timeout=timeout)
+            self._gt.expect("successfully", timeout=timeout)
             return True
         except (pexpect.TIMEOUT, pexpect.EOF):
             return False
@@ -862,24 +887,20 @@ class BLETransport:
         try:
             # Reset HCI adapter to clear stale connections
             try:
-                subprocess.run(
-                    ['hciconfig', 'hci0', 'reset'],
-                    capture_output=True, timeout=5
-                )
+                subprocess.run(["hciconfig", "hci0", "reset"], capture_output=True, timeout=5)
                 time.sleep(1)
             except Exception:
                 pass  # Non-fatal — adapter may still work
 
             # Start gatttool interactive
             self._gt = pexpect.spawn(
-                f'gatttool -b {self.device_address} -I',
-                encoding='utf-8', timeout=30
+                f"gatttool -b {self.device_address} -I", encoding="utf-8", timeout=30
             )
 
             # Connect
-            self._gt.sendline('connect')
+            self._gt.sendline("connect")
             try:
-                self._gt.expect('Connection successful', timeout=15)
+                self._gt.expect("Connection successful", timeout=15)
             except pexpect.TIMEOUT:
                 log.error("BLE: connection timeout for %s", self.device_address)
                 self._cleanup()
@@ -890,19 +911,19 @@ class BLETransport:
             time.sleep(0.5)
 
             # Request MTU 256 (allows 77-byte login in single write)
-            self._gt.sendline('mtu 256')
+            self._gt.sendline("mtu 256")
             time.sleep(1)
 
             # Enable indications on CCCD
-            self._gt.sendline(f'char-write-req {BLE_CCCD_HANDLE} 0200')
+            self._gt.sendline(f"char-write-req {BLE_CCCD_HANDLE} 0200")
             try:
-                self._gt.expect('successfully', timeout=5)
+                self._gt.expect("successfully", timeout=5)
             except pexpect.TIMEOUT:
                 log.warning("BLE: CCCD write timeout, continuing anyway")
             time.sleep(0.3)
 
             # Handshake: request random IV
-            pkt = _ttlv_build_packet(0x7032, b'', self._next_pid())
+            pkt = _ttlv_build_packet(0x7032, b"", self._next_pid())
             if not self._write_and_expect(pkt.hex()):
                 log.error("BLE: random request write failed")
                 self._cleanup()
@@ -914,7 +935,7 @@ class BLETransport:
             # Retry once if IV extraction failed (timing issue)
             if not iv_str or len(iv_str) < 16:
                 log.debug("BLE: IV retry (got '%s')", iv_str)
-                pkt = _ttlv_build_packet(0x7032, b'', self._next_pid())
+                pkt = _ttlv_build_packet(0x7032, b"", self._next_pid())
                 if not self._write_and_expect(pkt.hex()):
                     self._cleanup()
                     return False
@@ -931,10 +952,8 @@ class BLETransport:
 
             # Login
             auth_hex = self.auth_key.hex()
-            login_hash = hashlib.sha256(
-                f"{auth_hex};{iv_str}".encode('utf-8')
-            ).hexdigest()
-            login_payload = _ttlv_build_bytes_field(2, login_hash.encode('utf-8'))
+            login_hash = hashlib.sha256(f"{auth_hex};{iv_str}".encode("utf-8")).hexdigest()
+            login_payload = _ttlv_build_bytes_field(2, login_hash.encode("utf-8"))
             login_pkt = _ttlv_build_packet(0x7034, login_payload, self._next_pid())
 
             if not self._write_and_expect(login_pkt.hex()):
@@ -944,15 +963,15 @@ class BLETransport:
 
             raw = self._collect_indications(wait=3, extra_wait=3)
             parsed = _ttlv_parse_packet(raw)
-            if parsed.get('cmd') != 0x7035:
-                log.error("BLE: login failed (cmd=0x%04x)", parsed.get('cmd', 0))
+            if parsed.get("cmd") != 0x7035:
+                log.error("BLE: login failed (cmd=0x%04x)", parsed.get("cmd", 0))
                 self._cleanup()
                 return False
 
             # Set up encryption IV
-            iv_bytes = iv_str.encode('utf-8')
+            iv_bytes = iv_str.encode("utf-8")
             if len(iv_bytes) < 16:
-                iv_bytes = iv_bytes.ljust(16, b'\x00')
+                iv_bytes = iv_bytes.ljust(16, b"\x00")
             elif len(iv_bytes) > 16:
                 iv_bytes = iv_bytes[:16]
             self._iv = iv_bytes
@@ -973,10 +992,10 @@ class BLETransport:
             return None
         try:
             parsed = _ttlv_parse_packet(raw)
-            fields = _ttlv_parse_fields(parsed.get('payload', b''))
+            fields = _ttlv_parse_fields(parsed.get("payload", b""))
             for fid, ftype, fval in fields:
                 if fid == 1 and isinstance(fval, bytes):
-                    return fval.decode('utf-8')
+                    return fval.decode("utf-8")
         except Exception as e:
             log.debug("BLE IV parse error: %s", e)
         return None
@@ -985,9 +1004,9 @@ class BLETransport:
         """Clean up gatttool process."""
         if self._gt:
             try:
-                self._gt.sendline('disconnect')
+                self._gt.sendline("disconnect")
                 time.sleep(0.3)
-                self._gt.sendline('exit')
+                self._gt.sendline("exit")
                 time.sleep(0.2)
             except Exception:
                 pass
@@ -1017,7 +1036,7 @@ class BLETransport:
 
         with self._lock:
             try:
-                pkt = _ttlv_build_packet(0x0011, b'', self._next_pid())
+                pkt = _ttlv_build_packet(0x0011, b"", self._next_pid())
                 if not self._write_and_expect(pkt.hex()):
                     log.error("BLE: status read write failed")
                     self._connected = False
@@ -1028,7 +1047,7 @@ class BLETransport:
                 if not raw:
                     # Retry once
                     log.debug("BLE: no status data, retrying...")
-                    pkt = _ttlv_build_packet(0x0011, b'', self._next_pid())
+                    pkt = _ttlv_build_packet(0x0011, b"", self._next_pid())
                     if not self._write_and_expect(pkt.hex()):
                         self._connected = False
                         return {}
@@ -1041,8 +1060,8 @@ class BLETransport:
                 # Parse all TTLV packets and merge fields
                 all_fields = []
                 for parsed in self._parse_all_packets(raw):
-                    cmd = parsed.get('cmd', 0)
-                    payload = parsed.get('payload', b'')
+                    cmd = parsed.get("cmd", 0)
+                    payload = parsed.get("payload", b"")
                     if not payload or len(payload) < 16:
                         continue
 
@@ -1050,8 +1069,7 @@ class BLETransport:
                         decrypted = self._decrypt(payload)
                         fields = _ttlv_parse_fields(decrypted)
                         all_fields.extend(fields)
-                        log.debug("BLE packet cmd=0x%04x: %d fields",
-                                  cmd, len(fields))
+                        log.debug("BLE packet cmd=0x%04x: %d fields", cmd, len(fields))
                     except Exception as e:
                         # Try as unencrypted (some cmd types)
                         try:
@@ -1073,7 +1091,9 @@ class BLETransport:
                 self._connected = False
                 return {}
 
-    def send_control(self, data_point_id: int, value, ctrl_type: str = "BOOL", verify: bool = True) -> bool:
+    def send_control(
+        self, data_point_id: int, value, ctrl_type: str = "BOOL", verify: bool = True
+    ) -> bool:
         """Send a control command over BLE and (by default) verify it took effect.
 
         Mirrors the read-back-verification model used by `LocalTransport.send_control`
@@ -1134,7 +1154,8 @@ class BLETransport:
             log.warning(
                 "data_point_id=%d not in controls map for %s; cannot verify BLE write, "
                 "falling back to best-effort success",
-                data_point_id, getattr(self, "device_key", "?"),
+                data_point_id,
+                getattr(self, "device_key", "?"),
             )
             return True
 
@@ -1154,14 +1175,17 @@ class BLETransport:
         if actual is None:
             log.warning(
                 "BLE read-back missing field %s; cannot confirm write of value=%r",
-                field, expected_value,
+                field,
+                expected_value,
             )
             return False
 
         if not _control_values_equal(expected_value, actual, ctrl_type):
             log.warning(
                 "BLE write to %s not confirmed: requested=%r actual=%r",
-                field, expected_value, actual,
+                field,
+                expected_value,
+                actual,
             )
             return False
 
@@ -1195,14 +1219,13 @@ def scan_ble_devices(timeout: float = 10.0) -> list:
     results = []
     try:
         proc = subprocess.Popen(
-            ['hcitool', 'lescan', '--duplicates'],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            ["hcitool", "lescan", "--duplicates"], stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         time.sleep(timeout)
         proc.kill()
         stdout, _ = proc.communicate()
         seen = set()
-        for line in stdout.decode('utf-8', errors='replace').split('\n'):
+        for line in stdout.decode("utf-8", errors="replace").split("\n"):
             parts = line.strip().split(None, 1)
             if len(parts) == 2:
                 addr, name = parts
@@ -1216,7 +1239,7 @@ def scan_ble_devices(timeout: float = 10.0) -> list:
 
 def get_auth_key(token: str, region: dict, pk: str, dk: str) -> str:
     """Fetch the device authKey from Quectel cloud (one-time, can be cached).
-    
+
     Tries read-only getAuthKey first, then regenerateAuthKey as fallback.
     Some device models/accounts only support one or the other.
     """

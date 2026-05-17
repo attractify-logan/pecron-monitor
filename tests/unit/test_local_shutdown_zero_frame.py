@@ -18,7 +18,6 @@ log + HA publish for that single frame. Cloud MQTT continues to drive HA.
 import logging
 from unittest.mock import MagicMock
 
-import pytest
 
 from monitor import PecronMonitor
 

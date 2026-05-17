@@ -18,20 +18,36 @@ FAKE_AUTH = base64.b64encode(b"0123456789abcdef").decode()
 
 def make_monitor(device_names):
     config = {
-        "email": "x", "password": "x", "region": "na",
-        "devices": [{"product_key": "pk", "device_key": f"dk{i}", "name": n,
-                     "lan_ip": f"10.0.0.{i+1}", "auth_key": FAKE_AUTH}
-                    for i, n in enumerate(device_names)],
+        "email": "x",
+        "password": "x",
+        "region": "na",
+        "devices": [
+            {
+                "product_key": "pk",
+                "device_key": f"dk{i}",
+                "name": n,
+                "lan_ip": f"10.0.0.{i + 1}",
+                "auth_key": FAKE_AUTH,
+            }
+            for i, n in enumerate(device_names)
+        ],
     }
     m = PecronMonitor(config)
-    m.devices = [{"product_key": "pk", "device_key": f"dk{i}", "device_name": n, "product_name": n,
-                  "controls": {}} for i, n in enumerate(device_names)]
+    m.devices = [
+        {
+            "product_key": "pk",
+            "device_key": f"dk{i}",
+            "device_name": n,
+            "product_name": n,
+            "controls": {},
+        }
+        for i, n in enumerate(device_names)
+    ]
     m.send_control = MagicMock()  # don't actually try to send anything
     return m
 
 
 class TestModelBehavior(unittest.TestCase):
-
     def test_e3600_flag_set(self):
         self.assertFalse(MODEL_BEHAVIOR["E3600LFP"]["high_freq_effective"])
         self.assertFalse(MODEL_BEHAVIOR["E3600"]["high_freq_effective"])
@@ -54,8 +70,9 @@ class TestModelBehavior(unittest.TestCase):
         m = make_monitor(["E3800LFP", "E3600LFP", "E1500LFP"])
         m._enable_high_freq_reporting()
         sent_dks = [call.args[0] for call in m.send_control.call_args_list]
-        self.assertEqual(set(sent_dks), {"dk0", "dk2"},
-                         f"Expected E3800LFP + E1500LFP only, got {sent_dks}")
+        self.assertEqual(
+            set(sent_dks), {"dk0", "dk2"}, f"Expected E3800LFP + E1500LFP only, got {sent_dks}"
+        )
 
     def test_disable_skips_e3600(self):
         m = make_monitor(["E3600LFP"])
@@ -81,6 +98,7 @@ class TestE3600Capacity(unittest.TestCase):
 
     def test_e3600_is_3072(self):
         from constants import BATTERY_CAPACITY_WH
+
         self.assertEqual(BATTERY_CAPACITY_WH["E3600LFP"], "3072")
         self.assertEqual(BATTERY_CAPACITY_WH["E3600"], "3072")
 

@@ -10,7 +10,7 @@ import struct
 
 def _encode_varint(val: int) -> bytes:
     if val == 0:
-        return b'\x00'
+        return b"\x00"
     result = []
     while val > 0:
         result.append(val & 0xFF)
@@ -18,7 +18,7 @@ def _encode_varint(val: int) -> bytes:
     return bytes(reversed(result))
 
 
-def _build_packet(packet_id: int, cmd: int, payload: bytes = b'') -> bytes:
+def _build_packet(packet_id: int, cmd: int, payload: bytes = b"") -> bytes:
     inner = struct.pack(">HH", packet_id, cmd) + payload
     crc = sum(inner) & 0xFF
     length = len(inner) + 1

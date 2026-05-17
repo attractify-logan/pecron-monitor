@@ -68,6 +68,7 @@ def make_config():
         def test_something(make_config):
             config = make_config(with_lan=True, with_auth=True)
     """
+
     def _make(with_lan: bool = False, with_auth: bool = False):
         device = {
             "product_key": "p11u2b",
@@ -86,6 +87,7 @@ def make_config():
             "poll_interval": 60,
             "alerts": {"low_battery_percent": 20, "cooldown_minutes": 30},
         }
+
     return _make
 
 
