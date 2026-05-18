@@ -144,6 +144,12 @@ class TestPubConfigInjectsCategory(unittest.TestCase):
         payload = self._last_published_payload(b)
         self.assertEqual(payload.get("entity_category"), "diagnostic")
 
+    def test_config_category_sensor_is_downgraded_to_diagnostic(self):
+        b = self._make_bridge()
+        b._pub_config("sensor", "DEADBEEF", "screen_brightness", {"name": "Brightness"})
+        payload = self._last_published_payload(b)
+        self.assertEqual(payload.get("entity_category"), "diagnostic")
+
     def test_explicit_category_in_payload_is_preserved(self):
         # If a call site already set entity_category explicitly, don't overwrite.
         b = self._make_bridge()

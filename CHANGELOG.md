@@ -5,6 +5,11 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
+## [0.7.14] - 2026-05-17
+
+### Fixed
+- **Home Assistant sensor discovery no longer emits invalid `entity_category: config` payloads**. Live HA testing showed config-category sensors are rejected by Home Assistant. Sensor entities that were previously classified as configuration are now published as diagnostic instead, keeping them out of the main view while preserving valid discovery payloads.
+
 ## [0.7.13] - 2026-05-17
 
 ### Fixed

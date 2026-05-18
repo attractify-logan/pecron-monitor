@@ -1151,6 +1151,11 @@ class HomeAssistantBridge:
         # Diagnostic sections. Applied here so every call site benefits without
         # 50 per-call-site edits.
         category = entity_category_for(key)
+        if component == "sensor" and category == "config":
+            # Home Assistant rejects config-category sensors. Keep these
+            # rarely-used settings out of the main view by downgrading them to
+            # diagnostic rather than publishing invalid discovery payloads.
+            category = "diagnostic"
         if category and "entity_category" not in config:
             config = {**config, "entity_category": category}
         topic = f"{self.discovery_prefix}/{component}/pecron_{dk}/{key}/config"
