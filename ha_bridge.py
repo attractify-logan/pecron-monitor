@@ -111,6 +111,11 @@ class HomeAssistantBridge:
         # from the main loop will attempt a fresh connect every _retry_interval seconds.
         self._last_retry_at = 0.0
         self._retry_interval = ha_config.get("retry_interval", 60)
+        # Clear current retained discovery payloads immediately before republishing
+        # them. This forces Home Assistant to reload payload field changes on
+        # service restart instead of requiring a manual MQTT integration reload.
+        self.clear_discovery_on_startup = ha_config.get("clear_discovery_on_startup", True)
+        self._clear_current_discovery = False
 
         # Deferred-discovery bookkeeping. Per-port DC-input entities
         # (dc5521, gx16mf1, gx16mf2) are only published the first time the
@@ -242,6 +247,7 @@ class HomeAssistantBridge:
         # Issue #49: reset before discovery so on_connect's subscribe loop
         # (which runs right after this) sees only currently-registered topics.
         self._command_topics = []
+        self._clear_current_discovery = bool(self.clear_discovery_on_startup)
         for device in self.devices:
             dk = device["device_key"]
             name = device["device_name"]
@@ -1066,6 +1072,7 @@ class HomeAssistantBridge:
 
             # Clear stale entities from previous versions that no longer apply to this model
             self._clear_stale_entities(dk)
+        self._clear_current_discovery = False
 
         log.info("Published Home Assistant discovery configs")
 
@@ -1147,6 +1154,8 @@ class HomeAssistantBridge:
         if category and "entity_category" not in config:
             config = {**config, "entity_category": category}
         topic = f"{self.discovery_prefix}/{component}/pecron_{dk}/{key}/config"
+        if self._clear_current_discovery:
+            self.client.publish(topic, "", qos=1, retain=True)
         self.client.publish(topic, json.dumps(config), qos=1, retain=True)
         self._published_topics.add(topic)
         # Issue #49: capture every command_topic this entity registers so the

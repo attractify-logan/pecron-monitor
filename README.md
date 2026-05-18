@@ -1,6 +1,6 @@
 # Pecron Battery Monitor
 
-**v0.7.12** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
+**v0.7.13** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
 
 Monitor and control Pecron portable power stations from the command line — no phone app required.
 
@@ -243,9 +243,17 @@ homeassistant:
   mqtt_port: 1883
   mqtt_user: "user"
   mqtt_password: "pass"
+  discovery_prefix: "homeassistant"
+  clear_discovery_on_startup: true
 ```
 
 Run with `--homeassistant` or just start normally (auto-detects if enabled). Your Pecron appears in HA with battery sensors, power sensors, remaining time, and AC/DC/UPS switches.
+
+By default, the bridge clears each current retained discovery topic before
+republishing it on startup. This makes Home Assistant pick up discovery payload
+field changes after a service restart instead of requiring a manual MQTT
+integration reload. Set `clear_discovery_on_startup: false` if you need the old
+publish-only behavior.
 
 ## Running as a Service
 

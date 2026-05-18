@@ -5,6 +5,11 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
+## [0.7.13] - 2026-05-17
+
+### Fixed
+- **Home Assistant discovery payload changes apply on service restart**. The bridge now clears each current retained discovery topic immediately before republishing it, forcing HA to reload changed discovery fields without a manual MQTT integration reload. Set `homeassistant.clear_discovery_on_startup: false` to keep the previous publish-only behavior.
+
 ## [0.7.12] - 2026-05-17
 
 ### Added

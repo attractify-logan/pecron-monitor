@@ -359,6 +359,7 @@ def setup_wizard(auto=False):
             "mqtt_user": ha_user,
             "mqtt_password": ha_pw,
             "discovery_prefix": "homeassistant",
+            "clear_discovery_on_startup": True,
         },
         "rule_state": {
             "initial_state": "default",
