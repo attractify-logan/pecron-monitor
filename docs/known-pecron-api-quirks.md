@@ -14,7 +14,7 @@ This is a firmware/API bug, not something any client library can fix. Originally
 
 ## `high_frequency_reporting` is ignored by E3600LFP firmware
 
-**First documented by:** [@brucehoult in pecron-monitor issue #14](https://github.com/attractify-logan/pecron-monitor/issues/14)
+**First documented by:** [@brucehoult in pecron-monitor issue #14](https://github.com/Attractify-Marketing/pecron-monitor/issues/14)
 **Affects:** Cloud MQTT on E3600LFP (E3800LFP still honors the setting)
 
 TSL property `high_frequency_reporting` (id=100, ENUM) is meant to make the device push telemetry every few seconds instead of the normal cadence. It works on E3800LFP, E1500LFP, and most other Pecron models, but on the E3600LFP the setting has no observable effect. @brucehoult verified this across multiple test cadences: sending `=3` every 20 seconds, every 5 minutes, or never at all all produce identical behavior, one telemetry packet per value-type every ~20 minutes.
@@ -23,8 +23,8 @@ pecron-monitor skips the send entirely for E3600/E3600LFP (see `MODEL_BEHAVIOR` 
 
 ## Pecron cloud `code 4026 Insufficient resources` is a per-account polling rate-limit
 
-**First documented by:** [@brucehoult in pecron-monitor issue #14](https://github.com/attractify-logan/pecron-monitor/issues/14)
-**Root cause isolated by:** [@brucehoult in pecron-monitor issue #29 (2026-05-01..03)](https://github.com/attractify-logan/pecron-monitor/issues/29)
+**First documented by:** [@brucehoult in pecron-monitor issue #14](https://github.com/Attractify-Marketing/pecron-monitor/issues/14)
+**Root cause isolated by:** [@brucehoult in pecron-monitor issue #29 (2026-05-01..03)](https://github.com/Attractify-Marketing/pecron-monitor/issues/29)
 **Affects:** Cloud MQTT and REST, any model
 
 Pecron's cloud returns `type=BUSI-ERROR, code=4026, msg='Insufficient resources in the manufacturer's account. Please contact the device manufacturer.'` after the account hits a daily polling quota. The cap is roughly **1280 polls/day** per account. The window resets at 00:00 UTC.
@@ -52,14 +52,14 @@ Regional caveat: confirmed on @brucehoult's EU-region E3600LFP. At least one NA-
 
 ## E3600LFP battery capacity is 3072Wh, not 3600Wh
 
-**First documented by:** [@brucehoult in pecron-monitor issue #14](https://github.com/attractify-logan/pecron-monitor/issues/14)
+**First documented by:** [@brucehoult in pecron-monitor issue #14](https://github.com/Attractify-Marketing/pecron-monitor/issues/14)
 **Affects:** Any calculation using `BATTERY_CAPACITY_WH`
 
 The "3600" in E3600LFP is the inverter wattage, not the battery capacity. The actual LiFePO4 pack is 3072Wh, identical to the F3000LFP. Easy to get wrong because every other model in the lineup names itself after the pack size (E1500LFP = 1536Wh, E3800LFP = 3840Wh, etc.). v0.7.0 shipped the wrong value; v0.7.2 corrects it.
 
 ## E3600LFP / E3800LFP telemetry arrives in alternating MQTT packets
 
-**First documented here:** [pecron-monitor issue #14](https://github.com/attractify-logan/pecron-monitor/issues/14)
+**First documented here:** [pecron-monitor issue #14](https://github.com/Attractify-Marketing/pecron-monitor/issues/14)
 **Affects:** Cloud MQTT on E3600LFP and E3800LFP
 
 On these two models the cloud sends telemetry in 2-3 alternating packet shapes spaced roughly 10-15 seconds apart. A single MQTT message will contain only battery+status, or only voltage+power, or only settings, never everything in one payload. Clients that request data once and wait a fixed interval will see a partial picture.
@@ -90,7 +90,7 @@ Treat 4007 as actionable only if it persists *and* the device also never produce
 
 ## E3600LFP local TCP read returns only settings fields (no telemetry)
 
-**First documented here:** [pecron-monitor issue #14](https://github.com/attractify-logan/pecron-monitor/issues/14)
+**First documented here:** [pecron-monitor issue #14](https://github.com/Attractify-Marketing/pecron-monitor/issues/14)
 **Affects:** Local TCP (port 6607) on E3600LFP
 
 A standard TTLV read command to the E3600LFP over local TCP returns exactly 8 fields: `ac_output_voltage_io`, `ac_output_frequency_io`, `noastime_io`, `ac_switch_hm`, `auto_light_flag_as`, `machine_screen_light_as`, `device_manual`, `high_frequency_reporting`. Battery, voltage, power, and temperature are missing from this response.

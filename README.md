@@ -1,6 +1,6 @@
 # Pecron Battery Monitor
 
-**v0.7.14** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
+**v0.7.14** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/Attractify-Marketing/pecron-monitor/releases/latest) · [Project board](https://github.com/users/Attractify-Marketing/projects/1)
 
 Monitor and control Pecron portable power stations from the command line — no phone app required.
 
@@ -26,7 +26,7 @@ Works with **any Pecron model** that uses the Pecron app (E300LFP through F5000L
 ## Quick Start
 
 ```bash
-git clone https://github.com/attractify-logan/pecron-monitor.git
+git clone https://github.com/Attractify-Marketing/pecron-monitor.git
 cd pecron-monitor
 pip3 install -e .
 pecron-monitor --setup

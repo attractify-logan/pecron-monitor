@@ -39,7 +39,7 @@ E300LFP, C300LFP Mini, E500LFP, E600LFP, E800LFP, E1000LFP, E1500LFP, E2000LFP, 
 ## Installation
 
 ```
-git clone https://github.com/attractify-logan/pecron-monitor.git
+git clone https://github.com/Attractify-Marketing/pecron-monitor.git
 cd pecron-monitor
 pip install -r requirements.txt
 python pecron_monitor.py --setup
