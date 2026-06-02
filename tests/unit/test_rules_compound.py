@@ -82,6 +82,60 @@ def test_output_power_below_triggers():
     monitor.set_ac.assert_called_once_with("DK", False)
 
 
+# --- missing-load safety + AC/DC component fallback (#56 review) -------------
+
+
+def test_output_power_below_missing_telemetry_does_not_fire():
+    # Unknown load must NOT be treated as 0 W (that would enable charging blind).
+    monitor = _monitor_with_rule({"output_power_below": 2000})
+    monitor._evaluate_rules("DK", {"voltage": 52.0}, 50)
+    monitor.set_ac.assert_not_called()
+
+
+def test_compound_missing_output_telemetry_does_not_fire():
+    # Voltage present and low, but load unknown -> must not enable charging.
+    monitor = _monitor_with_rule({"voltage_below": 50.5, "output_power_below": 2000})
+    monitor._evaluate_rules("DK", {"voltage": 50.0}, 30)
+    monitor.set_ac.assert_not_called()
+
+
+def test_input_power_below_missing_telemetry_does_not_fire():
+    monitor = _monitor_with_rule({"input_power_below": 5})
+    monitor._evaluate_rules("DK", {"voltage": 52.0}, 50)
+    monitor.set_ac.assert_not_called()
+
+
+def test_output_power_above_from_ac_dc_component_fallback():
+    # Models without a top-level total (e.g. F3000LFP over local TCP) report
+    # AC/DC components nested; rules must use the same fallback as status logging.
+    monitor = _monitor_with_rule({"output_power_above": 2500})
+    kv = {
+        "voltage": 52.0,
+        "ac_data_output_hm": {"ac_output_power": 3000},
+        "dc_data_output_hm": {"dc_output_power": 0},
+    }
+    monitor._evaluate_rules("DK", kv, 50)
+    monitor.set_ac.assert_called_once_with("DK", False)
+
+
+def test_output_power_below_from_ac_dc_component_fallback():
+    monitor = _monitor_with_rule({"output_power_below": 2000})
+    kv = {
+        "voltage": 52.0,
+        "ac_data_output_hm": {"ac_output_power": 150},
+        "dc_data_output_hm": {"dc_output_power": 0},
+    }
+    monitor._evaluate_rules("DK", kv, 50)
+    monitor.set_ac.assert_called_once_with("DK", False)
+
+
+def test_output_power_below_fires_on_genuine_zero():
+    # An explicitly-reported 0 W load is a real reading, so charging may proceed.
+    monitor = _monitor_with_rule({"output_power_below": 2000})
+    monitor._evaluate_rules("DK", {"voltage": 52.0, "total_output_power": 0}, 50)
+    monitor.set_ac.assert_called_once_with("DK", False)
+
+
 # --- state-gate-only must never fire (regression for vacuous-AND bug) --------
 
 

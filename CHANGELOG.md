@@ -9,7 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This project use
 
 ### Added
 - **Compound rule conditions** (#56). Multiple trigger keys in a single rule are now ANDed — e.g. `voltage_below` + `output_power_below` to start charging only when the pack is low *and* not under a heavy load that would overload the inverter. Previously only one trigger per rule was evaluated.
-- **`output_power_below` / `output_power_above` conditions** (#56). Gate rules on the current load (W out), not just charging input.
+- **`output_power_below` / `output_power_above` conditions** (#56). Gate rules on the current load (W out), not just charging input. Power conditions resolve the top-level total or fall back to AC+DC components (matching status logging), and decline to fire when the value is unknown — missing telemetry is not treated as 0 W, so a "charge only when load is light" rule won't fire blind.
 - **`schedule_between` condition** (#56). Fires within a daily `["HH:MM", "HH:MM"]` window, including windows that wrap past midnight. Unlike the exact-minute `schedule`, a window can't be skipped between polls — better suited to peak/off-peak pricing periods.
 
 ### Changed
