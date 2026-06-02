@@ -85,6 +85,16 @@ ENTITY_CATEGORIES = {
 _DIAGNOSTIC_PREFIXES = ("pack_",)
 
 
+# Issue #78: sensor device_classes whose readings are instantaneous point-in-time
+# measurements. HA only records long-term statistics for numeric sensors that
+# declare a state_class, so without this these sensors are display-only — they
+# never appear in history statistics and can't feed the Energy Dashboard via a
+# Riemann-sum integral helper (power W -> energy kWh). The `energy` device_class
+# is intentionally excluded: cumulative counters set state_class=total_increasing
+# at their call site instead.
+_MEASUREMENT_DEVICE_CLASSES = frozenset({"power", "voltage", "current", "temperature", "battery"})
+
+
 def entity_category_for(key: str):
     """Return the HA entity_category ('config' / 'diagnostic') for an entity key,
     or None if the entity should stay in the main device view."""
@@ -1158,6 +1168,17 @@ class HomeAssistantBridge:
             category = "diagnostic"
         if category and "entity_category" not in config:
             config = {**config, "entity_category": category}
+        # Issue #78: tag instantaneous measurement sensors with
+        # state_class=measurement so HA records long-term statistics for them.
+        # Applied centrally so every numeric sensor benefits without per-call-site
+        # edits. Call sites that set state_class explicitly (e.g. total_energy =>
+        # total_increasing) are left untouched.
+        if (
+            component == "sensor"
+            and "state_class" not in config
+            and config.get("device_class") in _MEASUREMENT_DEVICE_CLASSES
+        ):
+            config = {**config, "state_class": "measurement"}
         topic = f"{self.discovery_prefix}/{component}/pecron_{dk}/{key}/config"
         if self._clear_current_discovery:
             self.client.publish(topic, "", qos=1, retain=True)

@@ -1,6 +1,6 @@
 # Pecron Battery Monitor
 
-**v0.7.14** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
+**v0.7.15** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
 
 Monitor and control Pecron portable power stations from the command line — no phone app required.
 
@@ -254,6 +254,52 @@ republishing it on startup. This makes Home Assistant pick up discovery payload
 field changes after a service restart instead of requiring a manual MQTT
 integration reload. Set `clear_discovery_on_startup: false` if you need the old
 publish-only behavior.
+
+### Energy Dashboard
+
+The Pecron's input/output channels are published as **power** sensors (Watts):
+AC Input Power, AC Output Power, DC Input Power, DC Output Power. Home
+Assistant's **Energy Dashboard only accepts energy sensors (kWh)** — it cannot
+add a Watt sensor directly, which is why these don't show up in the dashboard's
+device picker even though the values look correct.
+
+The device firmware does not report cumulative kWh counters for these channels
+(only PV models expose a `Total PV Energy` sensor), so the fix is to let Home
+Assistant integrate power over time with its built-in **Riemann sum integral**
+helper. Each power sensor declares `state_class: measurement`, so HA records
+long-term statistics for it and can integrate it cleanly.
+
+**UI (easiest):** Settings → Devices & Services → **Helpers** → Create Helper →
+**Integration - Riemann sum integral**. Pick a Pecron power sensor as the source,
+set **Metric prefix = `k` (kilo)** and **Time unit = `h` (hours)**. The result is
+a kWh sensor you can add under Settings → Dashboards → **Energy**.
+
+**YAML** equivalent (use your own entity IDs):
+
+```yaml
+sensor:
+  - platform: integration
+    source: sensor.pecron_e1500lfp_ac_input_power   # grid charging in
+    name: Pecron AC Input Energy
+    unit_prefix: k       # -> kWh
+    unit_time: h
+    method: left
+    max_sub_interval: "00:05:00"   # advance even when power is steady
+  - platform: integration
+    source: sensor.pecron_e1500lfp_ac_output_power  # AC load out
+    name: Pecron AC Output Energy
+    unit_prefix: k
+    unit_time: h
+    method: left
+    max_sub_interval: "00:05:00"
+  # ...repeat for DC Input Power (solar) and DC Output Power
+```
+
+Then in the Energy Dashboard add the AC/DC **Output** energy sensors under
+"Individual devices", and the **Input** energy sensors (e.g. solar) under "Solar
+panels" or "Grid consumption" as appropriate. Note that resolution is bounded by
+`poll_interval` (the bridge only publishes new values that often), so the energy
+totals are approximate, not revenue-grade.
 
 ## Running as a Service
 

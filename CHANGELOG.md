@@ -5,6 +5,14 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
+## [0.7.15] - 2026-06-01
+
+### Fixed
+- **Home Assistant power/voltage/current/temperature/battery sensors now declare `state_class: measurement`** (#78). Without it, HA never recorded long-term statistics for these sensors, so they were display-only and could not feed the Energy Dashboard. They are now valid sources for a Riemann-sum integral helper (power W → energy kWh). Cumulative energy counters (`Total PV Energy`) keep `state_class: total_increasing`.
+
+### Added
+- **README "Energy Dashboard" section** (#78). Documents why Watt sensors can't be added to HA's Energy Dashboard directly and gives copy-paste Riemann-integral helper config to convert the AC/DC input/output power channels into Energy-Dashboard-eligible kWh sensors.
+
 ## [0.7.14] - 2026-05-17
 
 ### Fixed
