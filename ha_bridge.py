@@ -1161,6 +1161,7 @@ class HomeAssistantBridge:
         # Diagnostic sections. Applied here so every call site benefits without
         # 50 per-call-site edits.
         category = entity_category_for(key)
+        original_category = category
         if component == "sensor" and category == "config":
             # Home Assistant rejects config-category sensors. Keep these
             # rarely-used settings out of the main view by downgrading them to
@@ -1172,9 +1173,15 @@ class HomeAssistantBridge:
         # state_class=measurement so HA records long-term statistics for them.
         # Applied centrally so every numeric sensor benefits without per-call-site
         # edits. Call sites that set state_class explicitly (e.g. total_energy =>
-        # total_increasing) are left untouched.
+        # total_increasing) are left untouched. Config-category entities are
+        # excluded even when they carry a numeric device_class: they are
+        # settings/knobs, and some (the WB12200 charge/discharge limits) decode
+        # to string labels like "12.8V" / "60A" in publish_state, which would be
+        # invalid under a numeric state_class. Check the pre-downgrade category
+        # since config sensors are republished as diagnostic above.
         if (
             component == "sensor"
+            and original_category != "config"
             and "state_class" not in config
             and config.get("device_class") in _MEASUREMENT_DEVICE_CLASSES
         ):

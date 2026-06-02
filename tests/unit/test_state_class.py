@@ -113,6 +113,33 @@ class TestPubConfigInjectsStateClass(unittest.TestCase):
         payload = self._last_published_payload(b)
         self.assertEqual(payload.get("state_class"), "total")
 
+    def test_wb12200_limit_sensors_do_not_get_state_class(self):
+        # Regression for #78 review: these config-category sensors carry a numeric
+        # device_class (voltage/current) but publish_state decodes them to string
+        # labels like "12.8V" / "60A". A numeric state_class on a string state is
+        # invalid in HA, so they must be excluded. They are also downgraded from
+        # config -> diagnostic (HA rejects config-category sensors).
+        cases = [
+            ("charging_limit_voltage", "voltage"),
+            ("discharge_limit_voltage", "voltage"),
+            ("charging_current_limit", "current"),
+            ("discharge_current_limit", "current"),
+        ]
+        for key, dev_class in cases:
+            b = self._make_bridge()
+            b._pub_config("sensor", "DEADBEEF", key, {"name": key, "device_class": dev_class})
+            payload = self._last_published_payload(b)
+            self.assertNotIn(
+                "state_class",
+                payload,
+                f"config sensor {key!r} (label state) must not get state_class",
+            )
+            self.assertEqual(
+                payload.get("entity_category"),
+                "diagnostic",
+                f"{key!r} should be downgraded config -> diagnostic",
+            )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
