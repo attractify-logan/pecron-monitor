@@ -5,6 +5,16 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
+## [0.7.16] - 2026-06-01
+
+### Added
+- **Compound rule conditions** (#56). Multiple trigger keys in a single rule are now ANDed — e.g. `voltage_below` + `output_power_below` to start charging only when the pack is low *and* not under a heavy load that would overload the inverter. Previously only one trigger per rule was evaluated.
+- **`output_power_below` / `output_power_above` conditions** (#56). Gate rules on the current load (W out), not just charging input.
+- **`schedule_between` condition** (#56). Fires within a daily `["HH:MM", "HH:MM"]` window, including windows that wrap past midnight. Unlike the exact-minute `schedule`, a window can't be skipped between polls — better suited to peak/off-peak pricing periods.
+
+### Changed
+- A rule with only a `state`/`states` gate and no trigger condition no longer fires (previously such a rule could not trigger anyway; this is now explicit).
+
 ## [0.7.15] - 2026-06-01
 
 ### Fixed

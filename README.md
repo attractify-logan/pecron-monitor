@@ -1,6 +1,6 @@
 # Pecron Battery Monitor
 
-**v0.7.15** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
+**v0.7.16** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
 
 Monitor and control Pecron portable power stations from the command line — no phone app required.
 
@@ -173,10 +173,21 @@ restore_outputs_after_shutdown:
 | `voltage_above` | `54.0` — fires at or above 54.0V |
 | `input_power_below` | `5` — no solar/charging input |
 | `input_power_above` | `100` — charging detected |
-| `schedule` | `"00:00"` — time-based (24h format) |
+| `output_power_below` | `2000` — load is light |
+| `output_power_above` | `2500` — heavy load (e.g. avoid charging into an overload) |
+| `schedule` | `"00:00"` — fires only on an exact `HH:MM` poll |
+| `schedule_between` | `["17:00", "21:00"]` — within a daily window; wraps midnight (`["22:00","06:00"]`) |
 | `init` | `true` — fires once when the service starts |
 | `state` | `"normal"` — only evaluate this rule in one state |
 | `states` | `["normal", "peak"]` — only evaluate this rule in any listed state |
+
+**Multiple conditions in one rule are ANDed** — every trigger key present must
+hold for the rule to fire (e.g. `voltage_below` + `output_power_below` to charge
+only when low *and* not under heavy load). `state`/`states` are separate gates
+checked first. A rule with only a `state`/`states` gate and no trigger never
+fires. Prefer `schedule_between` over `schedule`: an exact `schedule` only fires
+if a poll lands on that precise minute, which a multi-minute `poll_interval` can
+skip.
 
 Actions: `set_ac`, `set_dc`, `set_ups` (true/false), `set_state`, `run_command`
 
