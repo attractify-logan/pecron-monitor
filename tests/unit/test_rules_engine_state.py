@@ -46,11 +46,11 @@ def test_rule_state_action_persists_and_new_monitor_loads_it(tmp_path):
 
     monitor._evaluate_rules("DK", {"battery_percentage": 40, "voltage": 52.0}, 40)
 
-    assert monitor.rule_state == "low"
+    assert monitor.rule_states["default"] == "low"
     state_file = tmp_path / "rules-state.json"
-    assert json.loads(state_file.read_text())["state"] == "low"
+    assert json.loads(state_file.read_text())["states"]["default"] == "low"
     reloaded = _make_monitor(tmp_path, [], initial_state="normal")
-    assert reloaded.rule_state == "low"
+    assert reloaded.rule_states["default"] == "low"
 
 
 def test_state_gate_prevents_rule_in_wrong_state(tmp_path):

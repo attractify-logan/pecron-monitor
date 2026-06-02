@@ -5,6 +5,14 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
+## [0.7.17] - 2026-06-01
+
+### Added
+- **Multiple named rule-state variables** (#56). The rules engine state can now be a map of independent named variables instead of a single string. Make `rule_state.initial_state` a map (e.g. `{mode: off, charge: idle}`), gate rules with `state: {mode: peak}` or `states: {mode: [peak, shoulder]}` (every named variable must match), and update selected variables with `set_state: {mode: peak}` (others unchanged). `run_command` payloads now include a `states` map alongside the existing `state` string.
+
+### Changed
+- Legacy single-string rule state is unchanged: it lives under a reserved `default` variable, so existing `initial_state`/`state`/`states`/`set_state` string configs and persisted state files keep working. The persisted format moves to `{"states": {...}}`; old `{"state": "..."}` files are read and migrated on next write.
+
 ## [0.7.16] - 2026-06-01
 
 ### Added

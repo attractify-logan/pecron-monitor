@@ -123,7 +123,7 @@ class PecronMonitor:
         # Automation rules
         self.rules = config.get("rules", [])
         self.rule_state_config = config.get("rule_state", {}) or {}
-        self.rule_state = self._load_rule_state()
+        self.rule_states = self._load_rule_states()
         self._init_rules_ran = False
 
         self._mqtt_connect_failures = 0
@@ -1207,14 +1207,25 @@ class PecronMonitor:
             return Path(configured).expanduser()
         return Path.home() / ".pecron-monitor-rules.json"
 
-    def _initial_rule_state(self) -> str:
-        """Return configured initial rule state."""
-        return str(self.rule_state_config.get("initial_state", "default"))
+    _DEFAULT_STATE_VAR = "default"
 
-    def _load_rule_state(self) -> str:
-        """Load persisted rule state, falling back to the configured initial state."""
+    def _initial_rule_states(self) -> dict:
+        """Configured initial state variables as a name->value dict.
+        `initial_state` may be a plain string (the single `default` variable,
+        legacy) or a dict of named variables."""
+        initial = self.rule_state_config.get("initial_state")
+        if isinstance(initial, dict):
+            return {str(k): str(v) for k, v in initial.items()}
+        if initial is None:
+            return {self._DEFAULT_STATE_VAR: "default"}
+        return {self._DEFAULT_STATE_VAR: str(initial)}
+
+    def _load_rule_states(self) -> dict:
+        """Load persisted state variables, falling back to the configured initial
+        values. Reads both the multi-variable `{"states": {...}}` format and the
+        legacy single-state `{"state": "..."}` format."""
         path = self._rule_state_path()
-        fallback = self._initial_rule_state()
+        fallback = self._initial_rule_states()
         if not path.exists():
             return fallback
         try:
@@ -1223,11 +1234,18 @@ class PecronMonitor:
         except (OSError, json.JSONDecodeError) as e:
             log.warning("Could not load rule state from %s: %s", path, e)
             return fallback
-        state = data.get("state") if isinstance(data, dict) else None
-        return str(state) if state else fallback
+        if not isinstance(data, dict):
+            return fallback
+        states = data.get("states")
+        if isinstance(states, dict) and states:
+            return {str(k): str(v) for k, v in states.items()}
+        legacy = data.get("state")  # pre-multivar single-state format
+        if legacy:
+            return {self._DEFAULT_STATE_VAR: str(legacy)}
+        return fallback
 
-    def _save_rule_state(self) -> None:
-        """Persist current rule state atomically."""
+    def _save_rule_states(self) -> None:
+        """Persist current state variables atomically."""
         path = self._rule_state_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_name = tempfile.mkstemp(prefix=".pecron-rules-", dir=str(path.parent))
@@ -1235,7 +1253,7 @@ class PecronMonitor:
         try:
             with os.fdopen(fd, "w") as f:
                 json.dump(
-                    {"state": self.rule_state, "updated_at": datetime.utcnow().isoformat()},
+                    {"states": self.rule_states, "updated_at": datetime.utcnow().isoformat()},
                     f,
                 )
                 f.write("\n")
@@ -1247,26 +1265,45 @@ class PecronMonitor:
                 pass
             raise
 
-    def _set_rule_state(self, state: str) -> None:
-        """Change and persist the single rule engine state."""
-        new_state = str(state)
-        if new_state == self.rule_state:
-            return
-        old_state = self.rule_state
-        self.rule_state = new_state
-        self._save_rule_state()
-        log.info("Rule state changed: %s -> %s", old_state, new_state)
+    def _set_rule_states(self, updates) -> None:
+        """Apply one or more name->value state changes and persist if anything
+        changed. A bare string updates the single `default` variable (legacy)."""
+        if not isinstance(updates, dict):
+            updates = {self._DEFAULT_STATE_VAR: updates}
+        changed = {}
+        for name, value in updates.items():
+            name, value = str(name), str(value)
+            if self.rule_states.get(name) != value:
+                self.rule_states[name] = value
+                changed[name] = value
+        if changed:
+            self._save_rule_states()
+            log.info("Rule state changed: %s", changed)
 
     def _rule_state_matches(self, condition: dict) -> bool:
-        """Return whether current state satisfies a rule condition's state gate."""
+        """Whether the current state variables satisfy a rule's state gate.
+        `state`/`states` accept the legacy single-variable string/list, or a
+        {variable: value} / {variable: [values]} dict for named variables (every
+        named variable must match)."""
         if "state" in condition:
-            return self.rule_state == str(condition["state"])
+            spec = condition["state"]
+            if isinstance(spec, dict):
+                return all(self.rule_states.get(str(k)) == str(v) for k, v in spec.items())
+            return self.rule_states.get(self._DEFAULT_STATE_VAR) == str(spec)
         states = condition.get("states")
         if states is None:
             return True
+        if isinstance(states, dict):
+            for name, allowed in states.items():
+                allowed_set = (
+                    {str(allowed)} if isinstance(allowed, str) else {str(a) for a in allowed}
+                )
+                if self.rule_states.get(str(name)) not in allowed_set:
+                    return False
+            return True
         if isinstance(states, str):
-            return self.rule_state == states
-        return self.rule_state in {str(state) for state in states}
+            return self.rule_states.get(self._DEFAULT_STATE_VAR) == states
+        return self.rule_states.get(self._DEFAULT_STATE_VAR) in {str(s) for s in states}
 
     def _run_rule_command(
         self,
@@ -1289,7 +1326,8 @@ class PecronMonitor:
 
         payload = {
             "rule": rule.get("name"),
-            "state": self.rule_state,
+            "state": self.rule_states.get(self._DEFAULT_STATE_VAR),
+            "states": dict(self.rule_states),
             "device_key": device_key,
             "target_device_key": target_device_key,
             "battery_percent": battery_pct,
@@ -1507,7 +1545,7 @@ class PecronMonitor:
                         )
 
                 if "set_state" in action:
-                    self._set_rule_state(action["set_state"])
+                    self._set_rule_states(action["set_state"])
                     log.info("Rule '%s': set state=%s", rule.get("name"), action["set_state"])
 
                 if "run_command" in action:

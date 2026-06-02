@@ -141,7 +141,7 @@ def test_output_power_below_fires_on_genuine_zero():
 
 def test_state_gate_without_trigger_never_fires():
     monitor = _monitor_with_rule({"state": "peak"})
-    monitor.rule_state = "peak"
+    monitor.rule_states = {"default": "peak"}
     monitor._evaluate_rules("DK", {"voltage": 50.0, "total_output_power": 800}, 30)
     monitor.set_ac.assert_not_called()
 

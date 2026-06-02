@@ -1,6 +1,6 @@
 # Pecron Battery Monitor
 
-**v0.7.16** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
+**v0.7.17** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
 
 Monitor and control Pecron portable power stations from the command line — no phone app required.
 
@@ -178,8 +178,8 @@ restore_outputs_after_shutdown:
 | `schedule` | `"00:00"` — fires only on an exact `HH:MM` poll |
 | `schedule_between` | `["17:00", "21:00"]` — within a daily window; wraps midnight (`["22:00","06:00"]`) |
 | `init` | `true` — fires once when the service starts |
-| `state` | `"normal"` — only evaluate this rule in one state |
-| `states` | `["normal", "peak"]` — only evaluate this rule in any listed state |
+| `state` | `"normal"` — only in this state; or `{mode: peak, charge: armed}` to require named variables |
+| `states` | `["normal", "peak"]` — any listed state; or `{mode: [peak, shoulder]}` per named variable |
 
 **Multiple conditions in one rule are ANDed** — every trigger key present must
 hold for the rule to fire (e.g. `voltage_below` + `output_power_below` to charge
@@ -191,10 +191,17 @@ skip.
 
 Actions: `set_ac`, `set_dc`, `set_ups` (true/false), `set_state`, `run_command`
 
-Rule state is a single persisted string. Set the initial value with
-`rule_state.initial_state`; by default state is saved at
-`~/.pecron-monitor-rules.json` and survives service restarts. Use `set_state` to
-transition between states.
+Rule state is persisted at `~/.pecron-monitor-rules.json` (override with
+`rule_state.path`) and survives service restarts. The simplest form is a single
+string state: set `rule_state.initial_state: normal`, gate rules with
+`state`/`states`, and transition with `set_state: low`.
+
+For independent concerns, use **named state variables**: make `initial_state` a
+map (e.g. `{mode: off, charge: idle}`), gate with `state: {mode: peak}` /
+`states: {mode: [peak, shoulder]}` (every named variable must match), and update
+selected variables with `set_state: {mode: peak}` (others are left unchanged).
+Legacy single-string state lives under the reserved `default` variable, so old
+configs and state files keep working unchanged.
 
 `run_command` executes an external command without a shell. Provide either an
 argv list or a string that can be split like a shell command. The monitor sends
