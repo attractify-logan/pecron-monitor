@@ -1355,7 +1355,9 @@ class PecronMonitor:
         """Evaluate one trigger clause. Returns True only if satisfied; missing or
         unevaluable telemetry returns False so the (ANDed) rule does not fire."""
         if key == "init":
-            return init == bool(condition.get("init"))
+            # `init` is a startup trigger only when true. `init: false` must not
+            # become an "always fires on normal eval" trigger (#56 review).
+            return bool(condition.get("init")) and init
         if key == "battery_below":
             return battery_pct >= 0 and battery_pct <= condition["battery_below"]
         if key == "battery_above":

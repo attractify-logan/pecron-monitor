@@ -146,6 +146,30 @@ def test_state_gate_without_trigger_never_fires():
     monitor.set_ac.assert_not_called()
 
 
+# --- init semantics (#56 review) --------------------------------------------
+
+
+def test_init_false_never_fires_on_normal_eval():
+    monitor = _monitor_with_rule({"init": False})
+    monitor._evaluate_rules("DK", {"voltage": 52.0}, 50)
+    monitor.set_ac.assert_not_called()
+
+
+def test_init_false_compound_never_fires_on_normal_eval():
+    # init:false must not turn into an always-on trigger even alongside a real one.
+    monitor = _monitor_with_rule({"init": False, "voltage_below": 50.5})
+    monitor._evaluate_rules("DK", {"voltage": 50.0}, 30)
+    monitor.set_ac.assert_not_called()
+
+
+def test_init_true_fires_only_on_init_pass():
+    monitor = _monitor_with_rule({"init": True})
+    monitor._evaluate_rules("DK", {"voltage": 52.0}, 50)  # normal pass
+    monitor.set_ac.assert_not_called()
+    monitor._evaluate_rules("DK", {"voltage": 52.0}, 50, init=True)  # startup pass
+    monitor.set_ac.assert_called_once_with("DK", False)
+
+
 # --- time-window logic (pure) -----------------------------------------------
 
 
