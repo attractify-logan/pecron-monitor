@@ -140,6 +140,26 @@ class TestPubConfigInjectsStateClass(unittest.TestCase):
                 f"{key!r} should be downgraded config -> diagnostic",
             )
 
+    def test_numeric_config_sensor_still_gets_state_class(self):
+        # Regression for #78 review (round 2): ac_output_voltage is config-category
+        # (downgraded to diagnostic) but it's a genuine numeric voltage reading, so
+        # the exclusion must NOT be category-wide -- only the label-backed keys are
+        # excluded. ac_output_voltage must keep state_class=measurement.
+        b = self._make_bridge()
+        b._pub_config(
+            "sensor",
+            "DEADBEEF",
+            "ac_output_voltage",
+            {"name": "AC Output Voltage", "device_class": "voltage"},
+        )
+        payload = self._last_published_payload(b)
+        self.assertEqual(payload.get("entity_category"), "diagnostic")
+        self.assertEqual(
+            payload.get("state_class"),
+            "measurement",
+            "numeric config sensor ac_output_voltage must keep state_class",
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

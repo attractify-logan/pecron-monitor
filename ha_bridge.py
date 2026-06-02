@@ -94,6 +94,22 @@ _DIAGNOSTIC_PREFIXES = ("pack_",)
 # at their call site instead.
 _MEASUREMENT_DEVICE_CLASSES = frozenset({"power", "voltage", "current", "temperature", "battery"})
 
+# Issue #78 review: sensor keys that carry a numeric device_class but whose state
+# publish_state decodes to a STRING label, not a number. These are the WB12200
+# charge/discharge limits -> "12.8V" / "60A" via WB_*_LABELS. A numeric
+# state_class on a string state is invalid in HA, so they're excluded from the
+# injection below. Genuine numeric config sensors (e.g. ac_output_voltage) are
+# NOT in this set and still get state_class. Keep in sync with the label decoder
+# (_wb_enum_fields) in publish_state.
+_LABEL_SENSOR_KEYS = frozenset(
+    {
+        "charging_limit_voltage",
+        "discharge_limit_voltage",
+        "charging_current_limit",
+        "discharge_current_limit",
+    }
+)
+
 
 def entity_category_for(key: str):
     """Return the HA entity_category ('config' / 'diagnostic') for an entity key,
@@ -1161,7 +1177,6 @@ class HomeAssistantBridge:
         # Diagnostic sections. Applied here so every call site benefits without
         # 50 per-call-site edits.
         category = entity_category_for(key)
-        original_category = category
         if component == "sensor" and category == "config":
             # Home Assistant rejects config-category sensors. Keep these
             # rarely-used settings out of the main view by downgrading them to
@@ -1173,15 +1188,12 @@ class HomeAssistantBridge:
         # state_class=measurement so HA records long-term statistics for them.
         # Applied centrally so every numeric sensor benefits without per-call-site
         # edits. Call sites that set state_class explicitly (e.g. total_energy =>
-        # total_increasing) are left untouched. Config-category entities are
-        # excluded even when they carry a numeric device_class: they are
-        # settings/knobs, and some (the WB12200 charge/discharge limits) decode
-        # to string labels like "12.8V" / "60A" in publish_state, which would be
-        # invalid under a numeric state_class. Check the pre-downgrade category
-        # since config sensors are republished as diagnostic above.
+        # total_increasing) are left untouched. _LABEL_SENSOR_KEYS are excluded:
+        # they carry a numeric device_class but publish string labels, invalid
+        # under a numeric state_class.
         if (
             component == "sensor"
-            and original_category != "config"
+            and key not in _LABEL_SENSOR_KEYS
             and "state_class" not in config
             and config.get("device_class") in _MEASUREMENT_DEVICE_CLASSES
         ):
