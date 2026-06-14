@@ -5,6 +5,12 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
+## [Unreleased]
+
+### Documentation
+- **F5000LFP quirks** in `docs/known-pecron-api-quirks.md`: local-TCP reads return no fields and local-TCP control *writes* silently fail (use `--rest-only`); cloud-REST setting writes (e.g. `ac_charge_stop_value_iaos`) apply with several minutes of propagation lag, so verify by reading back rather than retrying immediately; the AC charge *limit* (not *speed*) is the lever that governs grid charging.
+
+
 ## [0.7.17] - 2026-06-01
 
 ### Added

@@ -103,3 +103,23 @@ Unlike the E1500LFP (which returns the full property set in a single local read)
 **Affects:** All models seen so far
 
 The 12-hex-char `deviceKey` returned by the cloud device-list API is the same as the Wi-Fi MAC address burned into the device's radio. `device_key=682499E40D61` appears on the LAN as MAC `68:24:99:e4:0d:61`. This is useful for LAN auto-discovery (see `lan_scan.py`): a single subnet ARP scan is enough to locate every bound device, no active handshake needed.
+
+## F5000LFP local TCP returns no fields, and local-TCP control writes silently fail
+
+**First documented by:** [noahbalboah/pecron-homeassistant](https://github.com/noahbalboah/pecron-homeassistant/blob/main/docs/pecron-api-quirks.md)
+**Confirmed on:** F5000LFP
+**Affects:** Local TCP (port 6607)
+
+Extends the E3600LFP local-TCP entry above. On the F5000LFP a local-TCP read returns *no* data fields at all — not even the settings subset the E3600LFP returns. The connection handshakes and the encrypted channel comes up, then the read body is empty (`No data fields in local read response`, even after retry).
+
+More consequentially, **local-TCP control *writes* silently fail**: a `--control` write over local TCP is accepted with no error, but the value never actually changes (verified by reading it back over cloud REST minutes later — it stays at the old value). The reliable path for both reading settings and writing them is the **cloud REST API** (`getDeviceBusinessAttributes` / `batchControlDevice`, i.e. `--rest-only`). Setting `high_frequency_reporting` to a LAN mode does not make local reads return data, and on F5000LFP that write did not even persist (read back as the prior value). Practical rule for F5000LFP: use `--rest-only` for any settings write, and verify with a REST read-back.
+
+## F5000LFP setting writes (e.g. AC charge limit) apply with minutes of propagation lag
+
+**First documented by:** [noahbalboah/pecron-homeassistant](https://github.com/noahbalboah/pecron-homeassistant/blob/main/docs/pecron-api-quirks.md)
+**Confirmed on:** F5000LFP
+**Affects:** Cloud REST (`batchControlDevice`)
+
+A cloud-REST write of `ac_charge_stop_value_iaos` (AC charge limit) returns `code 200` immediately, but the new value is not reflected by `getDeviceBusinessAttributes` for several minutes — an immediate read-back still shows the old value, while a read ~30 minutes later shows the new one. Don't conclude a write failed from a read taken seconds later; re-read after a few minutes before retrying.
+
+On F5000LFP the AC charge *limit* (`ac_charge_stop_value_iaos`) — not the charge *speed* (`ac_charging_power_ios`), which often doesn't bind — is the lever that governs grid charging; solar/DC charges independently above the limit, which makes a "grid tops up to X%, solar fills the rest" strategy possible.
