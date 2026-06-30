@@ -34,6 +34,8 @@ from constants import (
     SENSOR_FIELDS,
     BATTERY_CAPACITY_WH,
     MODEL_BEHAVIOR,
+    LOCAL_READ_TIMEOUT_DEFAULT,
+    LOCAL_READ_TIMEOUT_OVERRIDES,
 )
 from cloud_api import login, resolve_devices, get_device_properties_rest, set_device_property_rest
 from protocol import build_ttlv_read, build_ttlv_write_bool, build_ttlv_write_enum
@@ -358,6 +360,7 @@ class PecronMonitor:
                         auth_key,
                         device_key=dk,
                         controls=device.get("controls", DEFAULT_CONTROLS),
+                        multi_packet_timeout=self._local_read_timeout(device),
                     )
                     log.info("Local transport configured for %s @ %s", dk, lan_ip)
                 except Exception as e:
@@ -444,11 +447,13 @@ class PecronMonitor:
                     # Re-create transport with new IP
                     from local_transport import LocalTransport
 
+                    rediscovered_device = self._find_device(device_key)
                     self.local_transports[device_key] = LocalTransport(
                         new_ip,
                         cfg["auth_key"],
                         device_key=device_key,
-                        controls=self._find_device(device_key).get("controls", DEFAULT_CONTROLS),
+                        controls=rediscovered_device.get("controls", DEFAULT_CONTROLS),
+                        multi_packet_timeout=self._local_read_timeout(rediscovered_device),
                     )
                     return True
                 else:
@@ -563,9 +568,17 @@ class PecronMonitor:
         if kv.get("total_input_power", 0) > 0 or kv.get("total_output_power", 0) > 0:
             return True
 
-        # Check for battery_percentage at top level (E3600/E3800 MQTT telemetry packets)
+        # battery_percentage alone is NOT enough (issue #84): E3600/E3800
+        # settings-only payloads also include battery_percentage, so on its
+        # own it can't distinguish "complete telemetry" from "just settings".
+        # Require it alongside a flat temperature field (battery_temp etc.,
+        # used by E300LFP/E3800-style flat payloads per SENSOR_FIELDS) as
+        # corroborating evidence that a real telemetry packet arrived.
         battery_pct = kv.get("battery_percentage")
-        if battery_pct is not None:
+        has_flat_temp = any(
+            field in kv for field in ("battery_temp", "charging_plate_temp", "inverter_temp")
+        )
+        if battery_pct is not None and has_flat_temp:
             try:
                 if int(float(battery_pct)) >= 0:
                     return True
@@ -2192,6 +2205,13 @@ class PecronMonitor:
         (issue #14: E3600LFP ignores the setting; don't waste cloud requests)."""
         name = device.get("device_name") or device.get("product_name") or ""
         return MODEL_BEHAVIOR.get(name, {}).get("high_freq_effective", True)
+
+    @staticmethod
+    def _local_read_timeout(device: dict) -> float:
+        """Per-model inter-packet timeout for local TCP multi-packet reads
+        (issue #84: E3600/E3800 need longer gaps than the 3.0s global default)."""
+        name = device.get("device_name") or device.get("product_name") or ""
+        return LOCAL_READ_TIMEOUT_OVERRIDES.get(name, LOCAL_READ_TIMEOUT_DEFAULT)
 
     def _enable_high_freq_reporting(self, stagger: float = 0):
         """Enable high-frequency MQTT reporting on all devices for fast cache warm-up.

@@ -331,12 +331,17 @@ class LocalTransport:
         timeout: float = 10.0,
         device_key: str = None,
         controls: dict = None,
+        multi_packet_timeout: float = 3.0,
     ):
         self.device_ip = device_ip
         self.device_port = 6607
         self.auth_key = base64.b64decode(auth_key_b64)
         self.auth_key_b64 = auth_key_b64
         self.timeout = timeout
+        # Per-packet timeout while collecting a multi-packet read_status()
+        # response. Some models (E3600/E3800) need longer gaps between
+        # packets than others — see LOCAL_READ_TIMEOUT_OVERRIDES (issue #84).
+        self.multi_packet_timeout = multi_packet_timeout
 
         self._sock = None
         self._iv = None  # Set after handshake
@@ -528,10 +533,11 @@ class LocalTransport:
                 packets_read = 0
                 max_packets = 10  # Safety limit
 
-                # Temporarily reduce socket timeout for multi-packet reads
-                # E3800/E3600 can take 2-3 seconds between packets
+                # Temporarily reduce socket timeout for multi-packet reads.
+                # Per-model: E3800/E3600 can take 3-4 seconds between packets
+                # (see self.multi_packet_timeout / LOCAL_READ_TIMEOUT_OVERRIDES).
                 original_timeout = self._sock.gettimeout()
-                self._sock.settimeout(3.0)
+                self._sock.settimeout(self.multi_packet_timeout)
 
                 while packets_read < max_packets:
                     try:
@@ -579,7 +585,7 @@ class LocalTransport:
                         # Retry read command
                         pkt = _ttlv_build_packet(0x0011, b"", self._next_pid())
                         self._sock.sendall(pkt)
-                        self._sock.settimeout(3.0)
+                        self._sock.settimeout(self.multi_packet_timeout)
                         all_fields = []
                         packets_read = 0
                         while packets_read < max_packets:

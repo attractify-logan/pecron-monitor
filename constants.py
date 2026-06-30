@@ -86,6 +86,20 @@ MODEL_BEHAVIOR: dict[str, dict[str, bool]] = {
     "E3600LFP": {"high_freq_effective": False},
 }
 
+# Local TCP inter-packet read timeout (seconds), per model. E3600/E3800 split
+# telemetry across 3-4 TTLV packets with up to ~3-4s gaps between them (issue
+# #15). The global default below was tuned to 3.0s in issue #6 for models that
+# only ever send a single packet, but that's too tight for E3600/E3800 -- it
+# cuts the read off before the packet carrying real voltage/temp arrives,
+# leaving only settings data (issue #84). Unlisted models use the default.
+LOCAL_READ_TIMEOUT_DEFAULT = 3.0
+LOCAL_READ_TIMEOUT_OVERRIDES: dict[str, float] = {
+    "E3600": 5.0,
+    "E3600LFP": 5.0,
+    "E3800": 5.0,
+    "E3800LFP": 5.0,
+}
+
 # ---------------------------------------------------------------------------
 # Data point IDs (from Quectel TSL — Thing Specification Language)
 # These are universal for each Pecron product model.

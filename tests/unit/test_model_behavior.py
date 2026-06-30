@@ -7,7 +7,7 @@ known no-op (E3600LFP) and still sent for models where it's effective.
 
 import base64
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 # sys.path + paho mocking are handled globally by tests/conftest.py
 from constants import MODEL_BEHAVIOR
@@ -91,6 +91,33 @@ class TestModelBehavior(unittest.TestCase):
         m._enable_high_freq_reporting()
         # See test_enable_sends_for_e3800 -- verify=False on transient writes (#50).
         m.send_control.assert_called_once_with("dk0", "high_frequency_reporting", 3, verify=False)
+
+
+class TestLocalReadTimeout(unittest.TestCase):
+    """Regression for issue #84: E3600/E3800 local TCP multi-packet reads need
+    a longer inter-packet timeout than the 3.0s global default, or the read
+    cuts off before the packet carrying real voltage/temp telemetry arrives."""
+
+    def test_e3800_gets_extended_timeout(self):
+        m = make_monitor(["E3800LFP"])
+        self.assertEqual(m._local_read_timeout(m.devices[0]), 5.0)
+
+    def test_e3600_gets_extended_timeout(self):
+        m = make_monitor(["E3600LFP"])
+        self.assertEqual(m._local_read_timeout(m.devices[0]), 5.0)
+
+    def test_unlisted_model_uses_default(self):
+        m = make_monitor(["E1500LFP"])
+        self.assertEqual(m._local_read_timeout(m.devices[0]), 3.0)
+
+    def test_setup_passes_per_model_timeout_to_transport(self):
+        """_setup_local_transports must thread the per-model timeout through
+        to LocalTransport, not just compute it and drop it."""
+        m = make_monitor(["E3800LFP"])
+        with patch("monitor.HAS_LOCAL", True), patch("monitor.LocalTransport") as mock_transport:
+            m._setup_local_transports()
+            _, kwargs = mock_transport.call_args
+            self.assertEqual(kwargs.get("multi_packet_timeout"), 5.0)
 
 
 class TestE3600Capacity(unittest.TestCase):

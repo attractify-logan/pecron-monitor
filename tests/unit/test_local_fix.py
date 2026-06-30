@@ -66,6 +66,7 @@ def test_setup_local_transports_with_lan_ip_and_auth(
         fake_auth_key,
         device_key="AABBCCDDEEFF",
         controls={},
+        multi_packet_timeout=3.0,
     )
     assert "AABBCCDDEEFF" in monitor.local_transports
 
@@ -172,6 +173,7 @@ def test_cloud_auth_sets_up_local(
         fake_auth_key,
         device_key="AABBCCDDEEFF",
         controls={},
+        multi_packet_timeout=3.0,
     )
     assert "AABBCCDDEEFF" in monitor.local_transports
     assert monitor.offline_mode is False
