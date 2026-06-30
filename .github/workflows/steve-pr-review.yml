@@ -1,0 +1,170 @@
+name: Steve Le Poisson — PR Review
+
+# Automated code review on every PR, run by the Steve Le Poisson agent on Codex
+# (ChatGPT subscription, flat-rate) via Steve's own self-hosted runner. Posts the
+# review + a steve-le-poisson commit status to the PR. Inert (guard-skips) if the
+# box reviewer or a secret isn't present.
+#
+# Ported from attractify-ops/attractify-recording-studio (NEIL-1476 / NEIL-1498 /
+# NEIL-1529 / NEIL-1530) for pecron-monitor.
+#
+# ── pecron-monitor posture: ADVISORY ONLY ──────────────────────────────────
+#   • STEVE_GATE_ENFORCED=false → no auto-merge, no commit-status gating.
+#   • steve-le-poisson is NOT a required check (no branch protection change).
+#   • Critical-path PRs (see steve-review/critical-paths.txt) still escalate
+#     to Logan via Slack/Telegram if those secrets are configured.
+#
+# pull_request_target runs the orchestrator from the TRUSTED base branch (not the
+# PR head), so a PR can't modify review.sh and run arbitrary code on the self-hosted
+# runner or exfiltrate secrets. The PR is consumed as data (its diff), never executed.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: steve-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write    # post the steve-le-poisson commit status against head SHA
+
+jobs:
+  review:
+    name: Steve reviews the diff
+    runs-on: [self-hosted, steve]
+    if: github.event.pull_request.draft == false
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Steve (Codex) review
+        env:
+          GH_TOKEN:                ${{ secrets.GITHUB_TOKEN }}
+          LINEAR_API_KEY:          ${{ secrets.LINEAR_API_KEY }}
+          SLACK_TOKEN:             ${{ secrets.SLACK_TOKEN }}
+          TELEGRAM_BOT_TOKEN:      ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_LOGAN_CHAT_ID:  ${{ secrets.TELEGRAM_LOGAN_CHAT_ID }}
+          REPO:                    ${{ github.repository }}
+          PR_NUMBER:               ${{ github.event.pull_request.number }}
+          PR_TITLE:                ${{ github.event.pull_request.title }}
+          PR_BODY:                 ${{ github.event.pull_request.body }}
+          PR_HEAD_REF:             ${{ github.event.pull_request.head.ref }}
+          BASE_SHA:                ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA:                ${{ github.event.pull_request.head.sha }}
+          # Advisory only for pecron-monitor: never auto-merge, never gate.
+          STEVE_GATE_ENFORCED:     "false"
+        run: bash .github/steve-review/review.sh
+
+  # Runner-offline watchdog. Runs on a GitHub-hosted runner (always available) —
+  # NOT the self-hosted Steve runner. Posts an immediate pending status so the
+  # check has an initial state, then polls until the self-hosted review job
+  # posts its own status or times out. If Steve's runner never picks it up,
+  # posts a neutral-pass "success" so nothing is left hanging (this check is
+  # advisory only here — it can't block merge either way, but a stuck
+  # "pending" status is confusing on the PR).
+  #
+  # NOTE: pull_request_target uses the BASE branch's workflow, so this watchdog
+  # only takes effect for PRs opened AFTER this workflow file merges to main.
+  watchdog:
+    name: Watchdog — runner-offline safety net
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    # Intentionally no `needs:` — must run even when the self-hosted runner is offline.
+    permissions:
+      statuses: write
+    steps:
+      - name: Set initial pending status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO:     ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_URL:   ${{ github.event.pull_request.html_url }}
+        run: |
+          curl -fsS -X POST \
+            "https://api.github.com/repos/${REPO}/statuses/${HEAD_SHA}" \
+            -H "Authorization: token ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            --data-binary "$(jq -n \
+              --arg url "${PR_URL}" \
+              '{state:"pending",description:"review queued",context:"steve-le-poisson",target_url:$url}')" \
+            >/dev/null
+
+      - name: Poll for review completion (6-min timeout)
+        env:
+          GH_TOKEN:    ${{ secrets.GITHUB_TOKEN }}
+          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+          REPO:        ${{ github.repository }}
+          HEAD_SHA:    ${{ github.event.pull_request.head.sha }}
+          PR_URL:      ${{ github.event.pull_request.html_url }}
+          PR_NUMBER:   ${{ github.event.pull_request.number }}
+          PR_TITLE:    ${{ github.event.pull_request.title }}
+        run: |
+          ATTEMPTS=18
+          SLEEP_SECS=20
+          ALERTS_CHANNEL="C0B7M0NK82D"  # #attractify-alerts
+
+          get_steve_status() {
+            curl -fsS \
+              "https://api.github.com/repos/${REPO}/commits/${HEAD_SHA}/statuses?per_page=100" \
+              -H "Authorization: token ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              | jq -r '[.[] | select(.context == "steve-le-poisson")] | .[0].state // "pending"'
+          }
+
+          post_status() {
+            local state="$1" desc="$2"
+            curl -fsS -X POST \
+              "https://api.github.com/repos/${REPO}/statuses/${HEAD_SHA}" \
+              -H "Authorization: token ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              --data-binary "$(jq -n \
+                --arg s "$state" --arg d "$desc" --arg url "${PR_URL}" \
+                '{state:$s,description:$d,context:"steve-le-poisson",target_url:$url}')" \
+              >/dev/null
+          }
+
+          alert_ops() {
+            local msg="$1"
+            if [ -z "${SLACK_TOKEN:-}" ]; then
+              echo "SLACK_TOKEN not set — ops alert skipped"
+              return
+            fi
+            curl -fsS -X POST "https://slack.com/api/chat.postMessage" \
+              -H "Authorization: Bearer ${SLACK_TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data-binary "$(jq -n \
+                --arg ch "${ALERTS_CHANNEL}" \
+                --arg t "$msg" \
+                '{channel:$ch,text:$t}')" \
+              >/dev/null || true
+          }
+
+          echo "Watchdog: polling steve-le-poisson status for ${HEAD_SHA} (up to $((ATTEMPTS * SLEEP_SECS))s)"
+
+          for i in $(seq 1 "$ATTEMPTS"); do
+            sleep "$SLEEP_SECS"
+            STATE="$(get_steve_status)"
+            echo "Poll $i/$ATTEMPTS: state=${STATE}"
+            if [ "$STATE" = "success" ] || [ "$STATE" = "failure" ]; then
+              echo "Watchdog: self-hosted review reported (state=${STATE}) — nothing to do."
+              exit 0
+            fi
+          done
+
+          sleep 5
+          FINAL_STATE="$(get_steve_status)"
+          echo "Watchdog: timeout reached, final state=${FINAL_STATE}"
+          if [ "$FINAL_STATE" = "success" ] || [ "$FINAL_STATE" = "failure" ]; then
+            echo "Watchdog: review reported on re-fetch — no action needed."
+            exit 0
+          fi
+
+          post_status "success" "neutral — Steve box offline or not registered for this repo"
+
+          ALERT_MSG=":warning: *[steve-le-poisson] Runner OFFLINE/unregistered* — watchdog timeout after $((ATTEMPTS * SLEEP_SECS))s on pecron-monitor PR #${PR_NUMBER}: ${PR_URL} (${PR_TITLE}). Neutral-pass posted (advisory only, nothing blocked)."
+          alert_ops "$ALERT_MSG"
+          echo "Watchdog: neutral-pass posted and #attractify-alerts notified."

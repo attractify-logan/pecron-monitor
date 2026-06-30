@@ -1,0 +1,43 @@
+# Steve Le Poisson — Critical-Path Classifier (pecron-monitor)
+# ─────────────────────────────────────────────────────────────────────────
+# Files matching ANY of these patterns trigger the "critical" tier:
+#   • commit status held at failure (advisory only here — not a required
+#     check, so this never blocks merge; it just flags for Logan)
+#   • Logan Slack DM + Telegram escalation
+#
+# Patterns are ERE fragments matched against `git diff --name-only` output.
+# Logan: edit this list freely; re-run review.sh from a fresh push to reclassify.
+# Tuned for pecron-monitor: a CLI that holds device auth keys and writes
+# physical control commands (AC/DC switches) to hardware over LAN/cloud.
+# ─────────────────────────────────────────────────────────────────────────
+
+# ── Device auth / crypto (auth_key, AES handshake, login) ────────────────
+local_transport\.py
+protocol\.py
+cloud_api\.py
+auth_key
+auth_key_b64
+
+# ── Physical control writes (anything that flips AC/DC/UPS on real hardware) ──
+send_control
+send_bool_control
+set_ac
+set_dc
+one_shot_command
+
+# ── Secrets / config / credentials at rest ────────────────────────────────
+config\.yaml
+credential
+secret
+token
+password
+\.env
+
+# ── CI / release infra ─────────────────────────────────────────────────────
+\.github/workflows/
+pyproject\.toml
+CHANGELOG\.md
+
+# ── Destructive operations (matched against diff content, not filenames) ──
+# (These are checked separately in review.sh via diff content scan:
+#  DROP TABLE / DROP DATABASE / DELETE FROM / TRUNCATE TABLE / rm -rf)
