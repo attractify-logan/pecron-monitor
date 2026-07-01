@@ -2365,14 +2365,14 @@ class PecronMonitor:
                     elapsed,
                     max_wait,
                 )
-                # Re-publish MQTT read requests for incomplete devices
-                if self.mqtt_client:
-                    for dk in incomplete:
-                        device = self._find_device(dk)
-                        if device:
-                            cid = self._channel_id(device)
-                            pkt = build_ttlv_read(self._next_packet_id())
-                            self.mqtt_client.publish(f"q/1/d/{cid}/bus", pkt, qos=1)
+                # Re-attempt via the normal status path (issue #84: this used to
+                # only re-publish MQTT read requests, so --local/offline mode --
+                # which has no mqtt_client -- never retried local TCP at all and
+                # just idled out the full 45s on a single initial attempt).
+                # _request_status() covers BLE/local TCP/MQTT-publish/REST for
+                # every device and is a no-op for any transport that isn't
+                # configured, so this is safe to call unconditionally here.
+                self._request_status()
                 last_request_time = elapsed
 
         if elapsed >= max_wait:
