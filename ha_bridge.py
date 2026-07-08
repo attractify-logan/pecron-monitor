@@ -265,7 +265,7 @@ class HomeAssistantBridge:
         """Called when HA sends a command. Delegates to the monitor."""
         # This will be wired up by PecronMonitor
         if hasattr(self, "command_callback"):
-            self.command_callback(device_key, control, payload == "ON")
+            self.command_callback(device_key, control, payload)
 
     def _publish_discovery(self):
         """Publish HA MQTT auto-discovery messages."""
@@ -584,14 +584,28 @@ class HomeAssistantBridge:
                 # AC charging power level (E3800-only)
                 if self._has(device, "ac_charging_power_ios"):
                     self._pub_config(
-                        "sensor",
+                        "select",
                         dk,
                         "ac_charging_power",
                         {
                             "name": "AC Charging Power Setting",
                             "icon": "mdi:flash",
                             "state_topic": f"pecron/{dk}/state",
-                            "value_template": "{{ value_json.ac_charging_power_ios }}",
+                            "value_template": "{{ (value_json.ac_charging_power_ios | int * 10) ~ '%' if value_json.ac_charging_power_ios is not none else none }}",
+                            "options": [
+                                "0%",
+                                "10%",
+                                "20%",
+                                "30%",
+                                "40%",
+                                "50%",
+                                "60%",
+                                "70%",
+                                "80%",
+                                "90%",
+                                "100%",
+                            ],
+                            "command_topic": f"pecron/{dk}/ac_charging_power/set",
                             "device": dev_info,
                             "unique_id": f"pecron_{dk}_ac_charging_power",
                         },
@@ -600,7 +614,7 @@ class HomeAssistantBridge:
                 # UPS charge threshold (E3800-only)
                 if self._has(device, "ups_start_charge_value_as"):
                     self._pub_config(
-                        "sensor",
+                        "select",
                         dk,
                         "ups_charge_threshold",
                         {
@@ -608,7 +622,9 @@ class HomeAssistantBridge:
                             "icon": "mdi:battery-charging",
                             "unit_of_measurement": "%",
                             "state_topic": f"pecron/{dk}/state",
-                            "value_template": "{{ value_json.ups_start_charge_value_as }}",
+                            "value_template": "{{ value_json.ups_start_charge_value_as ~ '%' if value_json.ups_start_charge_value_as is not none else none }}",
+                            "options": ["30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"],
+                            "command_topic": f"pecron/{dk}/ups_charge_threshold/set",
                             "device": dev_info,
                             "unique_id": f"pecron_{dk}_ups_charge_threshold",
                         },
@@ -1267,6 +1283,7 @@ class HomeAssistantBridge:
             ],
             "switch": ["ac", "dc", "ups", "eco_mode", "touch_lock", "bypass", "auto_dim", "beep"],
             "binary_sensor": ["expansion_pack"],
+            "select": ["ac_charging_power", "ups_charge_threshold"],
         }
         for component, keys in ALL_ENTITY_KEYS.items():
             for key in keys:

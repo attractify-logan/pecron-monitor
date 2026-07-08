@@ -57,6 +57,7 @@ def make_monitor():
         }
     ]
     m.send_bool_control = MagicMock()
+    m.send_control = MagicMock()
     return m
 
 
@@ -131,6 +132,42 @@ class TestHaCommandDispatch(unittest.TestCase):
         )
         m.send_bool_control.assert_called_once_with("dk0", "ac_switch_hm", True)
 
+    def test_ac_charging_power_dispatch_ten_percent(self):
+        """Verify that a 10% payload correctly maps to protocol index 1 (not 10)."""
+        m = make_monitor()
+        m._ha_command("dk0", "ac_charging_power", "10%")
+        m.send_control.assert_called_once_with("dk0", "ac_charging_power_ios", 1)
+
+    def test_ac_charging_power_dispatch_fifty_percent(self):
+        """Verify that normal mid-range percentage select values parse accurately."""
+        m = make_monitor()
+        m._ha_command("dk0", "ac_charging_power", "50%")
+        m.send_control.assert_called_once_with("dk0", "ac_charging_power_ios", 5)
+
+    def test_ac_charging_power_dispatch_raw_index_fallback(self):
+        """Verify that direct integer index payloads continue to pass through unharmed."""
+        m = make_monitor()
+        m._ha_command("dk0", "ac_charging_power", "1")
+        m.send_control.assert_called_once_with("dk0", "ac_charging_power_ios", 1)
+
+    def test_ups_charge_threshold_dispatch(self):
+        m = make_monitor()
+        m._ha_command("dk0", "ups_charge_threshold", "80%")
+        m.send_control.assert_called_once_with("dk0", "ups_start_charge_value_as", 80)
+
+    def test_numeric_selects_bypass_local_transports(self):
+        """Verify that numeric ENUM/INT fields completely bypass local transport layers."""
+        m = make_monitor()
+        m.local_transports["dk0"] = MagicMock()
+
+        # Fire non-boolean selection change
+        m._ha_command("dk0", "ac_charging_power", "40%")
+
+        # Local transport should never have been touched or called
+        m.local_transports["dk0"].send_control.assert_not_called()
+        # Cloud publish route verified
+        m.send_control.assert_called_once_with("dk0", "ac_charging_power_ios", 4)
+
 
 class TestHaCommandMapMatchesDiscovery(unittest.TestCase):
     """Regression guard: the dispatch map must cover every command_topic that
@@ -152,6 +189,8 @@ class TestHaCommandMapMatchesDiscovery(unittest.TestCase):
                 "device_touch_locking_as": {},
                 "battery_temp": {},
                 "charging_plate_temp": {},
+                "ac_charging_power_ios": {},
+                "ups_start_charge_value_as": {},
             },
         }
         b = HomeAssistantBridge({"discovery_prefix": "homeassistant"}, devices=[device])
@@ -174,8 +213,12 @@ class TestHaCommandMapMatchesDiscovery(unittest.TestCase):
         for slug in sorted(discovered_slugs):
             with self.subTest(slug=slug):
                 m = make_monitor()
-                m._ha_command("dk0", slug, True)
-                (m.send_bool_control.assert_called_once(),)  # not silently dropped
+                if slug in ("ac_charging_power", "ups_charge_threshold"):
+                    m._ha_command("dk0", slug, "50%")
+                    m.send_control.assert_called_once()
+                else:
+                    m._ha_command("dk0", slug, True)
+                    m.send_bool_control.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -1017,35 +1017,15 @@ class PecronMonitor:
             log.warning("Unknown control type '%s' for %s, trying bool", ctrl_type, control_code)
             pkt = build_ttlv_write_bool(pid, ctrl["id"], bool(value))
 
-        # Try BLE first
-        ble = self.ble_transports.get(device_key)
-        if ble and ble.connected:
-            try:
-                if ble.send_control(ctrl["id"], value, ctrl_type, verify=verify):
-                    log.info(
-                        "Sent %s=%s (type=%s) to %s via BLE",
-                        control_code,
-                        value,
-                        ctrl_type,
-                        device_key,
-                    )
-                    return True
-            except Exception as e:
-                log.warning("BLE control failed: %s", e)
-
-        # Try TCP/WiFi local transport (reconnect if needed - Pecron closes TCP after each exchange)
-        lt = self.local_transports.get(device_key)
-        if lt:
-            if not lt.connected:
+        # Only attempt local radio writes for boolean switches (hardware limitation)
+        if ctrl_type == "BOOL":
+            # Try BLE first
+            ble = self.ble_transports.get(device_key)
+            if ble and ble.connected:
                 try:
-                    self._connect_local(device_key)
-                except Exception as e:
-                    log.debug("Local TCP reconnect failed for %s: %s", device_key, e)
-            if lt.connected:
-                try:
-                    if lt.send_control(ctrl["id"], value, ctrl_type, verify=verify):
+                    if ble.send_control(ctrl["id"], value, ctrl_type, verify=verify):
                         log.info(
-                            "Sent %s=%s (type=%s) to %s via TCP",
+                            "Sent %s=%s (type=%s) to %s via BLE",
                             control_code,
                             value,
                             ctrl_type,
@@ -1053,10 +1033,44 @@ class PecronMonitor:
                         )
                         return True
                 except Exception as e:
-                    log.warning("TCP control failed: %s", e)
+                    log.warning("BLE control failed: %s", e)
 
-        # Fall back to cloud transports (MQTT primary, REST fallback)
-        # Normal mode: try MQTT first, REST as fallback
+            # Try TCP/WiFi local transport (reconnect if needed - Pecron closes TCP after each exchange)
+            lt = self.local_transports.get(device_key)
+            if lt:
+                if not lt.connected:
+                    try:
+                        self._connect_local(device_key)
+                    except Exception as e:
+                        log.debug("Local TCP reconnect failed for %s: %s", device_key, e)
+                if lt.connected:
+                    try:
+                        if lt.send_control(ctrl["id"], value, ctrl_type, verify=verify):
+                            log.info(
+                                "Sent %s=%s (type=%s) to %s via TCP",
+                                control_code,
+                                value,
+                                ctrl_type,
+                                device_key,
+                            )
+                            return True
+                    except Exception as e:
+                        log.warning("TCP control failed: %s", e)
+
+        # Fall back to cloud transports
+        # Fix: Route non-boolean configurations (ENUM/INT) straight to REST API (issue #84)
+        if ctrl_type != "BOOL" and self.token_data:
+            if set_device_property_rest(
+                self.token_data["token"],
+                self.region,
+                device["product_key"],
+                device_key,
+                {control_code: value},
+            ):
+                log.info("Sent %s=%s to %s via CLOUD REST API", control_code, value, device_key)
+                return True
+
+        # Boolean primary cloud transport / last-resort fallback channel
         if self.mqtt_client is not None:
             self.mqtt_client.publish(f"q/1/d/{cid}/bus", pkt, qos=1)
             log.info(
@@ -1068,7 +1082,7 @@ class PecronMonitor:
             )
             return True
 
-        # MQTT not available, try REST API as fallback
+        # Last-resort cloud backup for Boolean toggles if MQTT client instance drops
         if self.token_data:
             if set_device_property_rest(
                 self.token_data["token"],
@@ -2154,7 +2168,6 @@ class PecronMonitor:
         try:
             while self._running:
                 time.sleep(poll_interval)
-
                 # Check if warm-up period has ended — disable high-freq to save cloud quota
                 if self.mqtt_client and high_freq_warmup_seconds > 0:
                     elapsed = time.time() - warmup_start
@@ -2189,6 +2202,7 @@ class PecronMonitor:
                     self.ha_bridge.try_reconnect()
 
                 self._request_status()
+
         except KeyboardInterrupt:
             log.info("Shutting down...")
         finally:
@@ -2252,29 +2266,46 @@ class PecronMonitor:
             except Exception as e:
                 log.debug("Could not disable high-freq for %s: %s", dk, e)
 
-    def _ha_command(self, device_key: str, control: str, on: bool):
-        """Handle commands from Home Assistant.
-
-        The slug→TSL map below must mirror every switch published by
-        ha_bridge._publish_discovery with a command_topic. If discovery adds
-        a new switch, add the slug→TSL row here too. Issue #54: previously
-        only ac/dc/ups were mapped, so HA toggles for eco_mode, touch_lock,
-        and auto_dim (auto_light_flag_as) were silently dropped. The longer
-        term cleanup is to drive this map from discovery; not in this PR.
-        """
+    def _ha_command(self, device_key: str, control: str, payload: Any):
+        """Handle commands from Home Assistant."""
         ctrl_map = {
             "ac": "ac_switch_hm",
             "dc": "dc_switch_hm",
             "ups": "ups_status_hm",
             "eco_mode": "eco_quite_mode_as",
             "touch_lock": "device_touch_locking_as",
-            # auto_dim's command_topic uses the TSL field name directly
-            # (see ha_bridge.py:628), so the slug == the TSL code here.
             "auto_light_flag_as": "auto_light_flag_as",
         }
         code = ctrl_map.get(control)
         if code:
-            self.send_bool_control(device_key, code, on)
+            if isinstance(payload, bool):
+                is_on = payload
+            else:
+                is_on = str(payload).upper() in ("ON", "TRUE", "1")
+            self.send_bool_control(device_key, code, is_on)
+        elif control == "ac_charging_power":
+            val_str = str(payload).strip()
+            is_percent = "%" in val_str
+            val_str = val_str.replace("%", "")
+            try:
+                val = int(val_str)
+                if is_percent:
+                    index = val // 10
+                else:
+                    index = val // 10 if val > 10 else val
+
+                if 0 <= index <= 10:
+                    self.send_control(device_key, "ac_charging_power_ios", index)
+            except (ValueError, TypeError):
+                log.warning("Invalid AC charging power payload from HA: %r", payload)
+        elif control == "ups_charge_threshold":
+            val_str = str(payload).replace("%", "").strip()
+            try:
+                pct = int(val_str)
+                if 30 <= pct <= 100:
+                    self.send_control(device_key, "ups_start_charge_value_as", pct)
+            except (ValueError, TypeError):
+                log.warning("Invalid UPS charge threshold payload from HA: %r", payload)
         else:
             log.warning(
                 "HA command for unknown control %r on %s -- no slug->TSL mapping (issue #54)",
