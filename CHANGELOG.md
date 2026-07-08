@@ -5,7 +5,14 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
-## [Unreleased]
+## [0.7.18] - 2026-07-08
+
+### Added
+- **HA select entities for AC charging power and UPS charge threshold** (#89, E3800-only, contributed by @mat1990dj). `ac_charging_power_ios` (0–100% in 10% steps) and `ups_start_charge_value_as` (30–100%) are now published as Home Assistant `select` entities with command topics instead of read-only sensors, so both settings can be changed from HA.
+
+### Changed
+- Non-boolean (ENUM/INT) control writes now skip BLE/local-TCP and go straight to the cloud REST API (#84, #89) — local radio writes only work for boolean switches. Boolean writes keep the existing BLE → local TCP → cloud MQTT → REST order.
+- HA command payloads are passed to the dispatcher raw and parsed per-control (`ON`/`OFF` for switches, percent strings for the new selects) instead of being coerced to a boolean at the bridge (#89).
 
 ### Documentation
 - **F5000LFP quirks** in `docs/known-pecron-api-quirks.md`: local-TCP reads return no fields and local-TCP control *writes* silently fail (use `--rest-only`); cloud-REST setting writes (e.g. `ac_charge_stop_value_iaos`) apply with several minutes of propagation lag, so verify by reading back rather than retrying immediately; the AC charge *limit* (not *speed*) is the lever that governs grid charging.
