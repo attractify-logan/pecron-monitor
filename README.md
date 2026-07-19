@@ -263,6 +263,9 @@ homeassistant:
   mqtt_password: "pass"
   discovery_prefix: "homeassistant"
   clear_discovery_on_startup: true
+  energy_sensors: true
+  energy_max_gap_seconds: 1800
+  # energy_state_path: "~/.pecron-monitor-energy.json"
 ```
 
 Run with `--homeassistant` or just start normally (auto-detects if enabled). Your Pecron appears in HA with battery sensors, power sensors, remaining time, and AC/DC/UPS switches.
@@ -275,49 +278,42 @@ publish-only behavior.
 
 ### Energy Dashboard
 
-The Pecron's input/output channels are published as **power** sensors (Watts):
-AC Input Power, AC Output Power, DC Input Power, DC Output Power. Home
-Assistant's **Energy Dashboard only accepts energy sensors (kWh)** — it cannot
-add a Watt sensor directly, which is why these don't show up in the dashboard's
-device picker even though the values look correct.
+Set `homeassistant.energy_sensors: true` to publish turnkey cumulative energy
+sensors for **AC Input**, **AC Output**, and **DC Output**. They use
+`device_class: energy`, `state_class: total_increasing`, and `kWh`, so Home
+Assistant can add them directly under Settings → Dashboards → **Energy** without
+a Riemann-sum helper.
 
-The device firmware does not report cumulative kWh counters for these channels
-(only PV models expose a `Total PV Energy` sensor), so the fix is to let Home
-Assistant integrate power over time with its built-in **Riemann sum integral**
-helper. Each power sensor declares `state_class: measurement`, so HA records
-long-term statistics for it and can integrate it cleanly.
+The counters integrate observed power readings and persist to
+`~/.pecron-monitor-energy.json` by default. Override that path with
+`homeassistant.energy_state_path` or `PECRON_ENERGY_STATE_PATH`. The bridge does
+not integrate time while it is stopped, unavailable/non-numeric readings, or
+gaps longer than `energy_max_gap_seconds` (30 minutes by default). Raise the gap
+limit if valid device telemetry normally arrives less often.
 
-**UI (easiest):** Settings → Devices & Services → **Helpers** → Create Helper →
-**Integration - Riemann sum integral**. Pick a Pecron power sensor as the source,
-set **Metric prefix = `k` (kilo)** and **Time unit = `h` (hours)**. The result is
-a kWh sensor you can add under Settings → Dashboards → **Energy**.
+These derived totals are approximate, not revenue-grade: their resolution and
+accuracy are bounded by the telemetry cadence. The bridge intentionally does not
+derive DC input/solar energy. Use the device's native `Total PV Energy` counter
+where available, or the Home Assistant helper below for models without one.
 
-**YAML** equivalent (use your own entity IDs):
+If built-in energy sensors are disabled, or you need a derived counter for
+another power channel, Home Assistant's **Integration - Riemann sum integral**
+helper remains available. Pick the Pecron power sensor, set **Metric prefix =
+`k`** and **Time unit = `h`**. The YAML equivalent is:
 
 ```yaml
 sensor:
   - platform: integration
-    source: sensor.pecron_e1500lfp_ac_input_power   # grid charging in
-    name: Pecron AC Input Energy
-    unit_prefix: k       # -> kWh
-    unit_time: h
-    method: left
-    max_sub_interval: "00:05:00"   # advance even when power is steady
-  - platform: integration
-    source: sensor.pecron_e1500lfp_ac_output_power  # AC load out
+    source: sensor.pecron_e1500lfp_ac_output_power
     name: Pecron AC Output Energy
     unit_prefix: k
     unit_time: h
     method: left
     max_sub_interval: "00:05:00"
-  # ...repeat for DC Input Power (solar) and DC Output Power
 ```
 
-Then in the Energy Dashboard add the AC/DC **Output** energy sensors under
-"Individual devices", and the **Input** energy sensors (e.g. solar) under "Solar
-panels" or "Grid consumption" as appropriate. Note that resolution is bounded by
-`poll_interval` (the bridge only publishes new values that often), so the energy
-totals are approximate, not revenue-grade.
+Then add the resulting output energy sensor under "Individual devices", or an
+input energy sensor under "Solar panels" / "Grid consumption" as appropriate.
 
 ## Running as a Service
 

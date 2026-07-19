@@ -5,6 +5,15 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
+## [Unreleased]
+
+### Added
+- Optional turnkey Home Assistant kWh sensors for AC input, AC output, and DC output (`homeassistant.energy_sensors: true`). Counters survive restarts, use Energy Dashboard-compatible MQTT discovery metadata, and avoid integrating unavailable or excessively stale readings (#79).
+
+### Fixed
+- Continuous local monitoring now retries incomplete E3600/E3800 multi-packet reads within the current poll cycle, targets only devices still missing telemetry, and advances to the next future cycle boundary when retries overrun an interval (#88).
+
+
 ## [0.7.18] - 2026-07-08
 
 ### Added

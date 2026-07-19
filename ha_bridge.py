@@ -14,6 +14,7 @@ except ImportError:
     mqtt = None
 
 from helpers import _truthy, _get_kv_single, _fmt_dhm
+from energy_state import DEFAULT_MAX_GAP_SECONDS, EnergyIntegrator
 from constants import (
     SENSOR_FIELDS,
     DEVICE_STATUS_LABELS,
@@ -142,6 +143,15 @@ class HomeAssistantBridge:
         # service restart instead of requiring a manual MQTT integration reload.
         self.clear_discovery_on_startup = ha_config.get("clear_discovery_on_startup", True)
         self._clear_current_discovery = False
+        # Derived kWh counters are strictly opt-in. Their persistence and sampling
+        # state are not touched when disabled, preserving the legacy bridge path.
+        self.energy_sensors = bool(_truthy(ha_config.get("energy_sensors", False)))
+        self._energy = None
+        if self.energy_sensors:
+            self._energy = EnergyIntegrator(
+                configured_path=ha_config.get("energy_state_path"),
+                max_gap_seconds=ha_config.get("energy_max_gap_seconds", DEFAULT_MAX_GAP_SECONDS),
+            )
 
         # Deferred-discovery bookkeeping. Per-port DC-input entities
         # (dc5521, gx16mf1, gx16mf2) are only published the first time the
@@ -762,6 +772,29 @@ class HomeAssistantBridge:
                     },
                 )
 
+                if self.energy_sensors:
+                    for channel, label in (
+                        ("ac_input", "AC Input Energy"),
+                        ("ac_output", "AC Output Energy"),
+                        ("dc_output", "DC Output Energy"),
+                    ):
+                        key = f"{channel}_energy"
+                        self._pub_config(
+                            "sensor",
+                            dk,
+                            key,
+                            {
+                                "name": label,
+                                "device_class": "energy",
+                                "state_class": "total_increasing",
+                                "unit_of_measurement": "kWh",
+                                "state_topic": f"pecron/{dk}/state",
+                                "value_template": f"{{{{ value_json.{key} }}}}",
+                                "device": dev_info,
+                                "unique_id": f"pecron_{dk}_{key}",
+                            },
+                        )
+
             # Per-port DC input sensors (DC5521 barrel, GX16-MF1/2 solar).
             # NOT published here. Deferred to publish_state so we only register
             # entities for ports that actually exist on the device. Models
@@ -1247,6 +1280,9 @@ class HomeAssistantBridge:
                 "dc_input",
                 "ac_output",
                 "dc_output",
+                "ac_input_energy",
+                "ac_output_energy",
+                "dc_output_energy",
                 "ac_output_voltage",
                 "ac_output_hz",
                 "ac_output_pf",
@@ -1315,6 +1351,21 @@ class HomeAssistantBridge:
                 if val is not None:
                     return True, val
             return False, None
+
+        def _get_first_observed(paths):
+            """Return a source path even when its observed value is unavailable."""
+            unavailable_observed = False
+            for path in paths:
+                value = kv
+                for part in path:
+                    if not isinstance(value, dict) or part not in value:
+                        break
+                    value = value[part]
+                else:
+                    if value is not None:
+                        return True, value
+                    unavailable_observed = True
+            return unavailable_observed, None
 
         # Identify payload shape (host packet vs overall packet)
         host_dict = kv.get("host_packet_data_jdb")
@@ -1756,6 +1807,15 @@ class HomeAssistantBridge:
         cache.setdefault("soc_percent", None)
         cache.setdefault("remain_hm", _fmt_dhm(cache.get("remain_minutes")))
         cache.setdefault("remain_charging_hm", _fmt_dhm(cache.get("remain_charging_minutes")))
+
+        if self._energy is not None:
+            readings = {}
+            for channel in ("ac_input", "ac_output", "dc_output"):
+                observed, value = _get_first_observed(SENSOR_FIELDS[f"{channel}_power"])
+                if observed:
+                    readings[channel] = value
+            for channel, total in self._energy.update(device_key, readings).items():
+                cache[f"{channel}_energy"] = round(total, 9)
 
         self.client.publish(f"pecron/{device_key}/state", json.dumps(cache), qos=1, retain=True)
 

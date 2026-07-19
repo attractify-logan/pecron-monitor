@@ -1602,11 +1602,17 @@ class PecronMonitor:
 
     # --- Status request ---
 
-    def _request_status(self):
-        # Clear local data keys at start of polling cycle to allow fresh tracking
-        self._local_data_keys.clear()
+    def _request_status(self, device_keys: Optional[set[str]] = None):
+        # Clear local data tracking only for devices included in this request.
+        # Targeted within-cycle retries must not discard other devices' source state.
+        if device_keys is None:
+            self._local_data_keys.clear()
+        else:
+            self._local_data_keys.difference_update(device_keys)
 
         for device in self.devices:
+            if device_keys is not None and device["device_key"] not in device_keys:
+                continue
             dk = device["device_key"]
 
             # Priority: BLE → TCP/WiFi → Cloud MQTT → REST API
@@ -2125,6 +2131,51 @@ class PecronMonitor:
 
     # --- Main loop ---
 
+    def _continuous_local_retry_device_keys(self) -> set[str]:
+        """Return local multi-packet devices eligible for within-cycle retries."""
+        return {
+            device["device_key"]
+            for device in self.devices
+            if device["device_key"] in self.local_transports
+            and (device.get("device_name") or device.get("product_name") or "")
+            in LOCAL_READ_TIMEOUT_OVERRIDES
+        }
+
+    def _request_status_with_local_retries(self, poll_interval: float) -> float:
+        """Request one cycle, retrying incomplete local multi-packet devices.
+
+        Returns the elapsed portion of the poll cycle so ``run`` can wait only
+        for the remaining interval rather than stacking a fresh interval after
+        retries.
+        """
+        eligible = self._continuous_local_retry_device_keys()
+        cycle_started = time.monotonic()
+        self._request_status()
+        if not eligible:
+            return 0.0
+
+        incomplete = {
+            device_key
+            for device_key in eligible
+            if not self._has_telemetry_fields(self.latest_data.get(device_key, {}))
+        }
+        deadline = cycle_started + min(45.0, max(0.0, float(poll_interval)))
+
+        while incomplete and self._running:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+
+            time.sleep(min(10.0, remaining))
+            self._request_status(device_keys=incomplete)
+            incomplete = {
+                device_key
+                for device_key in incomplete
+                if not self._has_telemetry_fields(self.latest_data.get(device_key, {}))
+            }
+
+        return time.monotonic() - cycle_started
+
     def run(self, enable_ha=False, force_offline=False):
         self._running = True
 
@@ -2163,11 +2214,18 @@ class PecronMonitor:
             warmup_start = time.time()
 
         time.sleep(3)
-        self._request_status()
+        cycle_elapsed = self._request_status_with_local_retries(poll_interval)
 
         try:
             while self._running:
-                time.sleep(poll_interval)
+                if poll_interval > 0:
+                    cycle_remainder = cycle_elapsed % poll_interval
+                    cycle_delay = (
+                        poll_interval if cycle_remainder == 0 else poll_interval - cycle_remainder
+                    )
+                else:
+                    cycle_delay = 0.0
+                time.sleep(cycle_delay)
                 # Check if warm-up period has ended — disable high-freq to save cloud quota
                 if self.mqtt_client and high_freq_warmup_seconds > 0:
                     elapsed = time.time() - warmup_start
@@ -2201,7 +2259,7 @@ class PecronMonitor:
                 if self.ha_bridge:
                     self.ha_bridge.try_reconnect()
 
-                self._request_status()
+                cycle_elapsed = self._request_status_with_local_retries(poll_interval)
 
         except KeyboardInterrupt:
             log.info("Shutting down...")
