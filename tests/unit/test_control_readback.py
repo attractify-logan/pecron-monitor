@@ -11,7 +11,8 @@ import unittest
 from unittest.mock import MagicMock
 
 # sys.path is handled globally by tests/conftest.py
-from local_transport import LocalTransport, _control_values_equal
+from local_transport import LocalTransport
+from protocol import _control_values_equal
 
 
 def make_transport(controls=None):

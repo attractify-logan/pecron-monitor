@@ -10,6 +10,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This project use
 ### Added
 - Optional turnkey Home Assistant kWh sensors for AC input, AC output, and DC output (`homeassistant.energy_sensors: true`). Counters survive restarts, use Energy Dashboard-compatible MQTT discovery metadata, and avoid integrating unavailable or excessively stale readings (#79).
 
+### Changed
+- Split local wire decoding, BLE transport, and cloud auth-key retrieval out of `local_transport.py` into responsibility-focused `protocol.py`, `ble_transport.py`, and `cloud_api.py` modules without changing transport behavior (#66).
+
 ### Fixed
 - Continuous local monitoring now retries incomplete E3600/E3800 multi-packet reads within the current poll cycle, targets only devices still missing telemetry, and advances to the next future cycle boundary when retries overrun an interval (#88).
 

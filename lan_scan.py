@@ -50,7 +50,7 @@ def _setup_lan_discovery(devices: list, token: str, region: dict) -> list:
 
     Returns the modified devices list with lan_ip and auth_key added.
     """
-    from local_transport import get_auth_key
+    from cloud_api import get_auth_key
 
     # Ensure all devices have auth_keys first (needed for handshake matching)
     for device in devices:

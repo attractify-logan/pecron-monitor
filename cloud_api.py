@@ -428,3 +428,31 @@ def resolve_devices(config: dict, token: str, region: dict) -> list:
                 )
                 log.warning("     It should be 12 hex characters (your device's MAC address)")
     return devices
+
+
+def get_auth_key(token: str, region: dict, pk: str, dk: str) -> str:
+    """Fetch the device authKey from Quectel cloud (one-time, can be cached).
+
+    Tries read-only getAuthKey first, then regenerateAuthKey as fallback.
+    Some device models/accounts only support one or the other.
+    """
+
+    last_error = None
+    for endpoint in ["getAuthKey", "regenerateAuthKey"]:
+        url = region["base_url"] + f"/v2/binding/enduserapi/{endpoint}"
+        data = urllib.parse.urlencode({"pk": pk, "dk": dk}).encode()
+        req = urllib.request.Request(url, data=data)
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+        req.add_header("Authorization", token)
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                body = json.loads(resp.read())
+            if body.get("code") == 200:
+                log.debug("Got authKey via %s", endpoint)
+                return body["data"]["authKey"]
+            last_error = body.get("msg", body)
+            log.debug("%s failed: %s", endpoint, last_error)
+        except Exception as e:
+            last_error = str(e)
+            log.debug("%s request failed: %s", endpoint, e)
+    raise RuntimeError(f"Failed to get authKey: {last_error}")
