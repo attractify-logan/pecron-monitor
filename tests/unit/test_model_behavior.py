@@ -114,7 +114,10 @@ class TestLocalReadTimeout(unittest.TestCase):
         """_setup_local_transports must thread the per-model timeout through
         to LocalTransport, not just compute it and drop it."""
         m = make_monitor(["E3800LFP"])
-        with patch("monitor.HAS_LOCAL", True), patch("monitor.LocalTransport") as mock_transport:
+        with (
+            patch("monitor_polling.HAS_LOCAL", True),
+            patch("monitor_polling.LocalTransport") as mock_transport,
+        ):
             m._setup_local_transports()
             _, kwargs = mock_transport.call_args
             self.assertEqual(kwargs.get("multi_packet_timeout"), 5.0)

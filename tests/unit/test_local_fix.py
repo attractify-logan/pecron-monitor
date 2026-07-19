@@ -50,8 +50,8 @@ def test_online_mode_valid_token_no_refresh(make_config):
     assert monitor._token_needs_refresh() is False
 
 
-@patch("monitor.HAS_LOCAL", True)
-@patch("monitor.LocalTransport")
+@patch("monitor_polling.HAS_LOCAL", True)
+@patch("monitor_polling.LocalTransport")
 def test_setup_local_transports_with_lan_ip_and_auth(
     mock_local_transport, make_config, fake_auth_key
 ):
@@ -71,8 +71,8 @@ def test_setup_local_transports_with_lan_ip_and_auth(
     assert "AABBCCDDEEFF" in monitor.local_transports
 
 
-@patch("monitor.HAS_LOCAL", True)
-@patch("monitor.LocalTransport")
+@patch("monitor_polling.HAS_LOCAL", True)
+@patch("monitor_polling.LocalTransport")
 def test_no_duplicate_setup(mock_local_transport, make_config):
     config = make_config(with_lan=True, with_auth=True)
     monitor = PecronMonitor(config)
@@ -84,8 +84,8 @@ def test_no_duplicate_setup(mock_local_transport, make_config):
     mock_local_transport.assert_called_once()
 
 
-@patch("monitor.HAS_LOCAL", True)
-@patch("monitor.LocalTransport")
+@patch("monitor_polling.HAS_LOCAL", True)
+@patch("monitor_polling.LocalTransport")
 def test_no_lan_ip_no_transport(mock_local_transport, make_config):
     config = make_config(with_lan=False)
     monitor = PecronMonitor(config)
@@ -97,9 +97,9 @@ def test_no_lan_ip_no_transport(mock_local_transport, make_config):
     assert len(monitor.local_transports) == 0
 
 
-@patch("monitor.HAS_LOCAL", True)
-@patch("monitor.get_auth_key")
-@patch("monitor.LocalTransport")
+@patch("monitor_polling.HAS_LOCAL", True)
+@patch("monitor_polling.get_auth_key")
+@patch("monitor_polling.LocalTransport")
 def test_fetches_auth_key_from_cloud_if_missing(
     mock_local_transport, mock_get_auth_key, make_config, fake_auth_key
 ):
@@ -115,8 +115,8 @@ def test_fetches_auth_key_from_cloud_if_missing(
     mock_local_transport.assert_called_once()
 
 
-@patch("monitor.HAS_LOCAL", True)
-@patch("monitor.LocalTransport")
+@patch("monitor_polling.HAS_LOCAL", True)
+@patch("monitor_polling.LocalTransport")
 def test_no_auth_key_no_token_skips(mock_local_transport, make_config):
     config = make_config(with_lan=True, with_auth=False)
     monitor = PecronMonitor(config)
@@ -146,8 +146,8 @@ def test_check_offline_capable_without_auth(make_config):
     assert monitor._check_offline_capable() is False
 
 
-@patch("monitor.HAS_LOCAL", True)
-@patch("monitor.LocalTransport")
+@patch("monitor_polling.HAS_LOCAL", True)
+@patch("monitor_polling.LocalTransport")
 @patch("monitor.resolve_devices")
 @patch("monitor.login")
 def test_cloud_auth_sets_up_local(

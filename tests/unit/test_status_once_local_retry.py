@@ -37,7 +37,7 @@ def test_offline_status_once_retries_via_request_status(make_config):
     monitor.offline_mode = True
     monitor._request_status = MagicMock()
 
-    with patch("monitor.time.sleep"):
+    with patch("monitor_status.time.sleep"):
         monitor.status_once(force_offline=True)
 
     # max_wait=45s / check_interval=5s, re-request gated to every 10s ->
@@ -61,7 +61,7 @@ def test_offline_status_once_stops_once_telemetry_arrives(make_config):
 
     monitor._request_status = MagicMock(side_effect=fake_request_status)
 
-    with patch("monitor.time.sleep"):
+    with patch("monitor_status.time.sleep"):
         monitor.status_once(force_offline=True)
 
     # Loop should exit as soon as telemetry lands, not run the full 45s.
