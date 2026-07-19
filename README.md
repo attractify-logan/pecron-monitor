@@ -1,6 +1,6 @@
 # Pecron Battery Monitor
 
-**v0.7.18** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
+**v0.8.0** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
 
 Monitor and control Pecron portable power stations from the command line — no phone app required.
 
@@ -20,7 +20,7 @@ Works with **any Pecron model** that uses the Pecron app (E300LFP through F5000L
 - **Remote control** — turn AC/DC on/off from the command line
 - **Alerts** — Telegram, ntfy, or webhook when battery gets low
 - **Automation** — rules like "turn off AC below 10%"
-- **Home Assistant** — auto-discovered MQTT sensors and switches
+- **Home Assistant** — auto-discovered sensors, switches, selects, and optional persisted kWh energy counters
 - **Fully offline** — after one-time setup, no internet needed
 
 ## Quick Start
@@ -154,6 +154,8 @@ restore_outputs_after_shutdown:
 ```
 
 > **`poll_interval` floor.** Pecron's cloud rate-limits per-account at roughly 1280 polls/day (issue #29). The monitor refuses to use cloud polling below 63s and warns between 63 and 69s. Below 63s the cap trips daily around 23:00 UTC with `code 4026 'Insufficient resources'`. The default of 70s leaves comfortable margin. Local/offline mode (`--local`) is not subject to this cloud quota and may use faster polling for LAN/BLE monitoring. Raise cloud polling further if you're seeing 4026 in your logs.
+
+> **Multi-packet local telemetry.** E3600/E3800-family devices may spread one snapshot across several TCP packets. Continuous local monitoring retries incomplete reads within the current poll cycle, stops as soon as telemetry is complete, and advances to the next future cycle boundary if retries overrun an interval.
 
 ### Alert Options
 
@@ -350,13 +352,26 @@ Most laptops and Raspberry Pi 3/4/5 have BLE built in. Desktop PCs may need a US
 
 ```
 pecron_monitor.py   — CLI entry point
-monitor.py          — Core PecronMonitor class
-ha_bridge.py        — Home Assistant MQTT bridge
-cloud_api.py        — Cloud auth & device discovery
+monitor.py          — PecronMonitor state and telemetry processing facade
+monitor_cloud.py    — Cloud authentication, MQTT recovery, and run lifecycle
+monitor_polling.py  — Local/BLE polling and transport coordination
+monitor_status.py   — One-shot command and status rendering
+monitor_controls.py — Control routing, probing, and HA command parsing
+monitor_alerts.py   — Low-battery alert delivery
+monitor_rules.py    — Automation rule state, evaluation, and actions
+monitor_restore.py  — Output restoration after low-battery shutdown
+output_state.py     — Persisted AC/DC output snapshots for restoration
+monitor_data.py     — Shared telemetry extraction helpers
+ha_bridge.py        — Home Assistant MQTT connection, retry, and dispatch
+ha_discovery.py     — Home Assistant discovery policy and entity catalog
+ha_state.py         — Home Assistant state formatting and publishing
+energy_state.py     — Persisted derived energy counters
 local_transport.py  — Local TCP/WiFi encrypted transport
-protocol.py         — TTLV packet encoding
-constants.py        — Regions, products, sensor mappings
-helpers.py          — Utility functions
+ble_transport.py    — Bluetooth Low Energy transport
+protocol.py         — Local TTLV wire codec and field translation
+cloud_api.py        — Cloud authentication, catalog, TSL, and REST helpers
+constants.py        — Regions, products, sensor mappings, and model policy
+helpers.py          — Shared utility functions
 lan_scan.py         — LAN device scanning
 setup_wizard.py     — Interactive setup
 ```

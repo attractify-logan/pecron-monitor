@@ -5,7 +5,7 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
-## [Unreleased]
+## [0.8.0] - 2026-07-18
 
 ### Added
 - Optional turnkey Home Assistant kWh sensors for AC input, AC output, and DC output (`homeassistant.energy_sensors: true`). Counters survive restarts, use Energy Dashboard-compatible MQTT discovery metadata, and avoid integrating unavailable or excessively stale readings (#79).
