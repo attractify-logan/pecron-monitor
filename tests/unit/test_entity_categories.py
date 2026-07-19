@@ -11,7 +11,8 @@ import unittest
 from unittest.mock import MagicMock
 
 # sys.path + paho mocking are handled globally by tests/conftest.py
-from ha_bridge import HomeAssistantBridge, ENTITY_CATEGORIES, entity_category_for
+from ha_bridge import HomeAssistantBridge
+from ha_discovery import ENTITY_CATEGORIES, entity_category_for
 
 
 class TestEntityCategoryHelper(unittest.TestCase):
