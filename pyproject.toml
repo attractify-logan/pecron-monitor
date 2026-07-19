@@ -30,6 +30,7 @@ pecron-monitor = "pecron_monitor:main"
 py-modules = [
     "cloud_api",
     "constants",
+    "energy_state",
     "ha_bridge",
     "helpers",
     "lan_scan",

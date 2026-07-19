@@ -62,22 +62,31 @@ The "3600" in E3600LFP is the inverter wattage, not the battery capacity. The ac
 **First documented here:** [pecron-monitor issue #14](https://github.com/attractify-logan/pecron-monitor/issues/14)
 **Affects:** Cloud MQTT on E3600LFP and E3800LFP
 
-On these two models the cloud sends telemetry in 2-3 alternating packet shapes spaced roughly 10-15 seconds apart. A single MQTT message will contain only battery+status, or only voltage+power, or only settings, never everything in one payload. Clients that request data once and wait a fixed interval will see a partial picture.
+These models split telemetry across alternating packet shapes: battery/status,
+voltage/power, and settings can arrive separately, so one message is not a
+complete snapshot. The cadence differs by firmware:
 
-pecron-monitor works around this by:
+- E3800LFP responds to `high_frequency_reporting=3`; packet shapes then arrive
+  roughly 10-15 seconds apart.
+- E3600LFP ignores that property. Hardware testing found each packet type stayed
+  on an approximately 20-minute cadence, with packet types offset from each
+  other. The official app's open status screen can trigger faster reports, but
+  no app-free cloud command is known ([issue #30](https://github.com/attractify-logan/pecron-monitor/issues/30)).
 
-1. Enabling `high_frequency_reporting=3` at startup for a short warm-up window (see `high_freq_warmup_seconds` in `config.yaml`, default 60s) so the full packet sequence arrives quickly.
-2. Disabling it again after warm-up (see the next quirk for why).
-3. Merging partial packets with a last-known-good cache (`_state_cache` in `ha_bridge.py`) so Home Assistant entities don't flap to `unknown` between packets.
+pecron-monitor merges partial packets into its last-known-good state. During
+startup it also enables high-frequency reporting briefly on models where the
+setting is effective, then disables it again. E3600/E3600LFP are explicitly
+excluded from those writes because they do not change the device's cadence.
 
 ## Persistent `high_frequency_reporting=3` burns cloud quota (error 4026)
 
 **First documented here:** [pecron-monitor v0.7.0 changelog](../CHANGELOG.md)
-**Affects:** Cloud MQTT, any model
+**Affects:** Cloud MQTT on models where high-frequency reporting is effective
 
-Leaving `high_frequency_reporting` enabled indefinitely eventually returns error code 4026 (`"Insufficient resources in manufacturer's account"`) and stops all cloud telemetry until it's disabled. The monitor enables it only long enough to fill the initial telemetry cache, then flips it back to 0.
-
-If you set `high_freq_warmup_seconds: 0`, be aware that slow devices (E3600/E3800 per above) may never produce a complete status log, and setting it to a very large number risks tripping 4026.
+Leaving high-frequency reporting enabled indefinitely can return error code 4026
+(`"Insufficient resources in manufacturer's account"`) and stop cloud telemetry.
+The monitor uses it only for the initial cache warm-up, then restores the normal
+reporting mode. Setting `high_freq_warmup_seconds: 0` disables that warm-up.
 
 ## `code 4007 "device is not bound"` is frequently a false positive
 
@@ -88,14 +97,25 @@ When sending a control command or verifying a device, Pecron's cloud sometimes r
 
 Treat 4007 as actionable only if it persists *and* the device also never produces telemetry. The monitor logs it as a warning once per session to avoid alert fatigue.
 
-## E3600LFP local TCP read returns only settings fields (no telemetry)
+## E3600LFP local TCP telemetry is inconsistent and not yet verified in normal operation
 
 **First documented here:** [pecron-monitor issue #14](https://github.com/attractify-logan/pecron-monitor/issues/14)
+**Tracked in:** [pecron-monitor issue #30](https://github.com/attractify-logan/pecron-monitor/issues/30)
 **Affects:** Local TCP (port 6607) on E3600LFP
 
-A standard TTLV read command to the E3600LFP over local TCP returns exactly 8 fields: `ac_output_voltage_io`, `ac_output_frequency_io`, `noastime_io`, `ac_switch_hm`, `auto_light_flag_as`, `machine_screen_light_as`, `device_manual`, `high_frequency_reporting`. Battery, voltage, power, and temperature are missing from this response.
+Early captures returned only eight settings fields and no battery, voltage,
+power, or temperature. A later offline-only low-battery/shutdown capture did
+return battery percentage, voltage, and temperature over local TCP, but its
+power and remaining-time values were zero/default. That proves richer local data
+is possible in at least one device state, not that it is reliable during normal
+operation.
 
-Unlike the E1500LFP (which returns the full property set in a single local read), the E3600LFP appears to restrict local-TCP responses to control-type properties. Workarounds attempted in `fix/e3600-data`: parsing the `extData` field on cloud MQTT bus messages, falling back to the REST `getDeviceBusinessAttributes` endpoint, and registering new TSL IDs for E3600-specific property shifts (e.g. `ac_switch_hm` at id=56 instead of 40). Investigation ongoing.
+Current releases use a longer inter-packet timeout and active retries for the
+E3600/E3800 packet family. This behavior is hardware-confirmed on E3800LFP; an
+E3600LFP `--local --status -v` / `--raw --local -v` capture with every official
+app instance closed is still needed to verify normal-operation cadence and field
+completeness. Until then, local mode is a testable lead rather than a documented
+workaround for the E3600 cloud limit.
 
 ## Pecron device MAC address matches the `device_key` byte-for-byte
 
