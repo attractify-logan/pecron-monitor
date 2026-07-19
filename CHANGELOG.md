@@ -15,6 +15,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This project use
 - Split monitor alert delivery, rules automation, shutdown-restore policy, and shared telemetry helpers into focused modules while keeping `PecronMonitor` behavior and method contracts unchanged (#66).
 - Split local transport setup/status polling and one-shot status rendering into `monitor_polling.py` and `monitor_status.py`, preserving retry timing and CLI output contracts (#66).
 - Split cloud authentication, Pecron MQTT callbacks/recovery, poll-rate validation, and the main monitor lifecycle into `monitor_cloud.py` while retaining one facade-owned runtime state (#66).
+- Split control routing, value probing, convenience commands, and Home Assistant command parsing into `monitor_controls.py`, preserving local/cloud fallback order and readback behavior (#66).
 
 ### Fixed
 - Continuous local monitoring now retries incomplete E3600/E3800 multi-packet reads within the current poll cycle, targets only devices still missing telemetry, and advances to the next future cycle boundary when retries overrun an interval (#88).
