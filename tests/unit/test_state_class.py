@@ -14,7 +14,8 @@ import unittest
 from unittest.mock import MagicMock
 
 # sys.path + paho mocking are handled globally by tests/conftest.py
-from ha_bridge import HomeAssistantBridge, _MEASUREMENT_DEVICE_CLASSES
+from ha_bridge import HomeAssistantBridge
+from ha_discovery import _MEASUREMENT_DEVICE_CLASSES
 
 
 class TestPubConfigInjectsStateClass(unittest.TestCase):
