@@ -196,7 +196,7 @@ def test_in_time_window_zero_width_and_invalid():
 
 def test_schedule_between_inside_window_fires():
     monitor = _monitor_with_rule({"schedule_between": ["17:00", "21:00"]})
-    with patch("monitor.datetime") as mock_dt:
+    with patch("monitor_rules.datetime") as mock_dt:
         mock_dt.now.return_value.strftime.return_value = "18:00"
         monitor._evaluate_rules("DK", {"voltage": 52.0}, 50)
     monitor.set_ac.assert_called_once_with("DK", False)
@@ -204,7 +204,7 @@ def test_schedule_between_inside_window_fires():
 
 def test_schedule_between_outside_window_does_not_fire():
     monitor = _monitor_with_rule({"schedule_between": ["17:00", "21:00"]})
-    with patch("monitor.datetime") as mock_dt:
+    with patch("monitor_rules.datetime") as mock_dt:
         mock_dt.now.return_value.strftime.return_value = "09:00"
         monitor._evaluate_rules("DK", {"voltage": 52.0}, 50)
     monitor.set_ac.assert_not_called()
@@ -214,7 +214,7 @@ def test_schedule_between_compound_with_voltage():
     # Peak window AND low voltage -> fire; outside window -> don't.
     cond = {"schedule_between": ["17:00", "21:00"], "voltage_below": 50.5}
     monitor = _monitor_with_rule(cond)
-    with patch("monitor.datetime") as mock_dt:
+    with patch("monitor_rules.datetime") as mock_dt:
         mock_dt.now.return_value.strftime.return_value = "18:00"
         monitor._evaluate_rules("DK", {"voltage": 50.0}, 30)
     monitor.set_ac.assert_called_once_with("DK", False)
@@ -222,7 +222,7 @@ def test_schedule_between_compound_with_voltage():
 
 def test_schedule_between_malformed_does_not_fire():
     monitor = _monitor_with_rule({"schedule_between": ["17:00"]})
-    with patch("monitor.datetime") as mock_dt:
+    with patch("monitor_rules.datetime") as mock_dt:
         mock_dt.now.return_value.strftime.return_value = "18:00"
         monitor._evaluate_rules("DK", {"voltage": 52.0}, 50)
     monitor.set_ac.assert_not_called()
