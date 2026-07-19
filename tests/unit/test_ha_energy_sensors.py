@@ -67,6 +67,12 @@ def test_energy_discovery_is_opt_in_and_energy_dashboard_compatible(tmp_path):
         if call.args[0].split("/")[-2] in expected and call.args[1]
     ]
     assert disabled_payloads == []
+    cleared_keys = {
+        call.args[0].split("/")[-2]
+        for call in disabled.client.publish.call_args_list
+        if call.args[0].split("/")[-2] in expected and call.args[1] == ""
+    }
+    assert cleared_keys == expected
 
     enabled = _bridge(tmp_path, enabled=True)
     enabled._publish_discovery()
