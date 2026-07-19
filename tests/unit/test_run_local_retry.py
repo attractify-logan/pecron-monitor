@@ -54,6 +54,9 @@ def make_monitor(make_config, model="E3800LFP", *, local=True, poll_interval=25)
 
 def test_incomplete_eligible_local_device_retries_within_cycle(make_config):
     monitor = make_monitor(make_config)
+    # A complete value in the persistent merged cache came from an older cycle
+    # and must not suppress retries for this cycle's settings-only local read.
+    monitor.latest_data["AABBCCDDEEFF"] = dict(TELEMETRY)
     clock = FakeClock()
     monitor._request_status = MagicMock()
 
@@ -78,7 +81,7 @@ def test_complete_eligible_local_data_stops_without_retry(make_config):
     clock = FakeClock()
 
     def complete_first_request(device_keys=None):
-        monitor.latest_data["AABBCCDDEEFF"] = dict(TELEMETRY)
+        monitor._local_data_keys.add("AABBCCDDEEFF")
 
     monitor._request_status = MagicMock(side_effect=complete_first_request)
 

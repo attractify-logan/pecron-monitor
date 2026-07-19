@@ -2154,11 +2154,7 @@ class PecronMonitor:
         if not eligible:
             return 0.0
 
-        incomplete = {
-            device_key
-            for device_key in eligible
-            if not self._has_telemetry_fields(self.latest_data.get(device_key, {}))
-        }
+        incomplete = eligible.difference(self._local_data_keys)
         deadline = cycle_started + min(45.0, max(0.0, float(poll_interval)))
 
         while incomplete and self._running:
@@ -2168,11 +2164,7 @@ class PecronMonitor:
 
             time.sleep(min(10.0, remaining))
             self._request_status(device_keys=incomplete)
-            incomplete = {
-                device_key
-                for device_key in incomplete
-                if not self._has_telemetry_fields(self.latest_data.get(device_key, {}))
-            }
+            incomplete.difference_update(self._local_data_keys)
 
         return time.monotonic() - cycle_started
 
