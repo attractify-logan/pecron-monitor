@@ -8,7 +8,7 @@ import logging
 
 import pytest
 
-from monitor import (
+from monitor_cloud import (
     MIN_POLL_INTERVAL,
     RECOMMENDED_POLL_INTERVAL,
     _validate_poll_interval,

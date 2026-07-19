@@ -3,7 +3,8 @@
 import time
 from unittest.mock import MagicMock
 
-from monitor import PecronMonitor, mqtt
+from monitor import PecronMonitor
+from monitor_cloud import mqtt
 
 
 def test_on_connect_failure_tracks_rebuild_need(make_config):

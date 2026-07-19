@@ -45,7 +45,9 @@ class TestCloudRecovery(unittest.TestCase):
         monitor = PecronMonitor(config)
         # Even though devices have lan_ip+auth_key (offline-capable), we expect the
         # fallback path to run because login() raises, not the forced-offline path.
-        with patch("monitor.login", side_effect=OSError("Temporary failure in name resolution")):
+        with patch(
+            "monitor_cloud.login", side_effect=OSError("Temporary failure in name resolution")
+        ):
             monitor.authenticate(force_offline=False)
         self.assertTrue(monitor.offline_mode, "Should fall back to offline on login failure")
         self.assertTrue(monitor._fell_back_to_offline, "Should flag the fallback as unplanned")
@@ -77,7 +79,7 @@ class TestCloudRecovery(unittest.TestCase):
         monitor.offline_mode = True
         monitor._fell_back_to_offline = True
         monitor._last_cloud_retry_at = time.time()  # just attempted
-        with patch("monitor.login") as mock_login:
+        with patch("monitor_cloud.login") as mock_login:
             self.assertFalse(
                 monitor._try_cloud_recovery(), "Should not retry inside the cooldown window"
             )
@@ -95,9 +97,9 @@ class TestCloudRecovery(unittest.TestCase):
 
         fake_token = {"token": "t", "uid": "U1", "expires_at": time.time() + 3600}
         with (
-            patch("monitor.login", return_value=fake_token),
+            patch("monitor_cloud.login", return_value=fake_token),
             patch(
-                "monitor.resolve_devices",
+                "monitor_cloud.resolve_devices",
                 return_value=[
                     {
                         "product_key": "p11u2b",
@@ -125,7 +127,9 @@ class TestCloudRecovery(unittest.TestCase):
         monitor._fell_back_to_offline = True
         monitor._last_cloud_retry_at = 0
 
-        with patch("monitor.login", side_effect=OSError("Temporary failure in name resolution")):
+        with patch(
+            "monitor_cloud.login", side_effect=OSError("Temporary failure in name resolution")
+        ):
             recovered = monitor._try_cloud_recovery()
 
         self.assertFalse(recovered)

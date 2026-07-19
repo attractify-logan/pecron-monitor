@@ -148,8 +148,8 @@ def test_check_offline_capable_without_auth(make_config):
 
 @patch("monitor_polling.HAS_LOCAL", True)
 @patch("monitor_polling.LocalTransport")
-@patch("monitor.resolve_devices")
-@patch("monitor.login")
+@patch("monitor_cloud.resolve_devices")
+@patch("monitor_cloud.login")
 def test_cloud_auth_sets_up_local(
     mock_login, mock_resolve_devices, mock_local_transport, make_config, fake_auth_key
 ):
