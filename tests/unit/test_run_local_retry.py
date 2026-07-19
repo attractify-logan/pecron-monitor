@@ -61,8 +61,8 @@ def test_incomplete_eligible_local_device_retries_within_cycle(make_config):
     monitor._request_status = MagicMock()
 
     with (
-        patch("monitor.time.monotonic", side_effect=clock.monotonic),
-        patch("monitor.time.sleep", side_effect=clock.sleep),
+        patch("monitor_polling.time.monotonic", side_effect=clock.monotonic),
+        patch("monitor_polling.time.sleep", side_effect=clock.sleep),
     ):
         elapsed = monitor._request_status_with_local_retries(25)
 
@@ -86,8 +86,8 @@ def test_complete_eligible_local_data_stops_without_retry(make_config):
     monitor._request_status = MagicMock(side_effect=complete_first_request)
 
     with (
-        patch("monitor.time.monotonic", side_effect=clock.monotonic),
-        patch("monitor.time.sleep", side_effect=clock.sleep),
+        patch("monitor_polling.time.monotonic", side_effect=clock.monotonic),
+        patch("monitor_polling.time.sleep", side_effect=clock.sleep),
     ):
         elapsed = monitor._request_status_with_local_retries(25)
 
@@ -102,8 +102,8 @@ def test_non_multi_packet_model_remains_single_attempt(make_config):
     monitor._request_status = MagicMock()
 
     with (
-        patch("monitor.time.monotonic", side_effect=clock.monotonic),
-        patch("monitor.time.sleep", side_effect=clock.sleep),
+        patch("monitor_polling.time.monotonic", side_effect=clock.monotonic),
+        patch("monitor_polling.time.sleep", side_effect=clock.sleep),
     ):
         elapsed = monitor._request_status_with_local_retries(25)
 
@@ -134,8 +134,8 @@ def test_elapsed_retry_time_never_creates_negative_or_stacked_cycle_delay(make_c
     monitor._recover_mqtt_connection = MagicMock()
 
     with (
-        patch("monitor.time.monotonic", side_effect=clock.monotonic),
-        patch("monitor.time.sleep", side_effect=clock.sleep),
+        patch("monitor_polling.time.monotonic", side_effect=clock.monotonic),
+        patch("monitor_polling.time.sleep", side_effect=clock.sleep),
     ):
         monitor.run(force_offline=True)
 
