@@ -37,19 +37,25 @@ from constants import (
     LOCAL_READ_TIMEOUT_DEFAULT,
     LOCAL_READ_TIMEOUT_OVERRIDES,
 )
-from cloud_api import login, resolve_devices, get_device_properties_rest, set_device_property_rest
+from cloud_api import (
+    get_auth_key,
+    get_device_properties_rest,
+    login,
+    resolve_devices,
+    set_device_property_rest,
+)
 from protocol import build_ttlv_read, build_ttlv_write_bool, build_ttlv_write_enum
 
 # Local TCP transport (LAN-first, cloud-fallback)
 try:
-    from local_transport import LocalTransport, get_auth_key
+    from local_transport import LocalTransport
 
     HAS_LOCAL = True
 except ImportError:
     HAS_LOCAL = False
 
 try:
-    from local_transport import BLETransport, HAS_BLE
+    from ble_transport import BLETransport, HAS_BLE
 except ImportError:
     HAS_BLE = False
 

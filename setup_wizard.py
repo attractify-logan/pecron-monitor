@@ -11,19 +11,26 @@ import subprocess
 import yaml
 from pathlib import Path
 
-from cloud_api import login, get_user_devices, get_product_catalog, verify_device, get_product_tsl
-
-try:
-    from local_transport import get_auth_key
-except ImportError:
-    get_auth_key = None
+from cloud_api import (
+    get_auth_key,
+    get_product_catalog,
+    get_product_tsl,
+    get_user_devices,
+    login,
+    verify_device,
+)
 from constants import REGIONS
 from lan_scan import _setup_lan_discovery, discover_devices
 
-HAS_LOCAL = get_auth_key is not None
+try:
+    import local_transport as _local_transport
+
+    HAS_LOCAL = _local_transport.LocalTransport is not None
+except ImportError:
+    HAS_LOCAL = False
 
 try:
-    from local_transport import scan_ble_devices, HAS_BLE
+    from ble_transport import HAS_BLE, scan_ble_devices
 except ImportError:
     HAS_BLE = False
 
