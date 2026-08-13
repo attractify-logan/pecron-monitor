@@ -1,5 +1,3 @@
-
-
 # Pecron Battery Monitor
 
 **v0.8.0** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
