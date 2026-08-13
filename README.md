@@ -343,7 +343,7 @@ sudo systemctl enable --now pecron-monitor
 Optional — only needed if you want Bluetooth monitoring (no WiFi required):
 
 ```bash
-pip3 install bleak
+pip3 install pexpect
 ```
 
 Most laptops and Raspberry Pi 3/4/5 have BLE built in. Desktop PCs may need a USB BLE dongle (~$10). The setup wizard auto-discovers Pecron BLE devices.

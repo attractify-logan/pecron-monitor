@@ -1,5 +1,5 @@
 paho-mqtt>=2.0
 pycryptodome>=3.19
 pyyaml>=6.0
-# Optional: BLE transport (Bluetooth Low Energy)
-# bleak>=0.21
+# Optional: BLE transport (Bluetooth Low Energy) — gatttool driven via pexpect
+# pexpect>=4.8
