@@ -480,7 +480,11 @@ class MonitorPollingMixin:
         eligible = self._continuous_local_retry_device_keys()
         cycle_started = time.monotonic()
         self._request_status()
-        if not eligible:
+        # Retry only when local TCP is the sole telemetry source (#88). With cloud
+        # MQTT up, each retry also re-publishes a cloud read, and an E3800 whose
+        # local session carries settings only never completes: five cloud reads
+        # per cycle instead of one.
+        if not eligible or self.mqtt_client is not None:
             return 0.0
 
         incomplete = eligible.difference(self._local_data_keys)

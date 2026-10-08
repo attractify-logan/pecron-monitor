@@ -155,7 +155,7 @@ restore_outputs_after_shutdown:
 
 > **`poll_interval` floor.** Pecron's cloud rate-limits per-account at roughly 1280 polls/day (issue #29). The monitor refuses to use cloud polling below 63s and warns between 63 and 69s. Below 63s the cap trips daily around 23:00 UTC with `code 4026 'Insufficient resources'`. The default of 70s leaves comfortable margin. Local/offline mode (`--local`) is not subject to this cloud quota and may use faster polling for LAN/BLE monitoring. Raise cloud polling further if you're seeing 4026 in your logs.
 
-> **Multi-packet local telemetry.** E3600/E3800-family devices may spread one snapshot across several TCP packets. Continuous local monitoring retries incomplete reads within the current poll cycle, stops as soon as telemetry is complete, and advances to the next future cycle boundary if retries overrun an interval.
+> **Multi-packet local telemetry.** E3600/E3800-family devices may spread one snapshot across several TCP packets. When local TCP is the only telemetry source (`--local`, or while the cloud is unreachable), continuous monitoring retries incomplete reads within the current poll cycle, stops as soon as telemetry is complete, and advances to the next future cycle boundary if retries overrun an interval.
 
 ### Alert Options
 
