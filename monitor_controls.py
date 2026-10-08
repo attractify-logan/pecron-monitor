@@ -273,7 +273,21 @@ class MonitorControlsMixin:
             if isinstance(payload, bool):
                 is_on = payload
             else:
-                is_on = str(payload).upper() in ("ON", "TRUE", "1")
+                word = str(payload).strip().upper()
+                if word in ("ON", "TRUE", "1"):
+                    is_on = True
+                elif word in ("OFF", "FALSE", "0"):
+                    is_on = False
+                else:
+                    # Anything else used to mean OFF, so an empty or garbled
+                    # message could switch an output off.
+                    log.warning(
+                        "Ignoring HA %s command for %s with payload %r (expected ON or OFF)",
+                        control,
+                        device_key,
+                        payload,
+                    )
+                    return
             self.send_bool_control(device_key, code, is_on)
         elif control == "ac_charging_power":
             val_str = str(payload).strip()

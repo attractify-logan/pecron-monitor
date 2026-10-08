@@ -123,13 +123,26 @@ class HomeAssistantBridge(HomeAssistantDiscoveryMixin, HomeAssistantStateMixin):
             self._connected = False
 
         def on_message(client, ud, msg):
-            # Handle HA commands
-            parts = msg.topic.split("/")
-            if len(parts) == 4 and parts[3] == "set":
-                dk = parts[1]
-                ctrl = parts[2]
-                payload = msg.payload.decode().upper()
-                self._handle_command(dk, ctrl, payload)
+            # Handle HA commands. An exception here would stop paho's network
+            # thread, so never let one escape.
+            try:
+                parts = msg.topic.split("/")
+                if len(parts) == 4 and parts[3] == "set":
+                    if getattr(msg, "retain", False):
+                        # Home Assistant never retains commands. A retained one
+                        # would be replayed on every reconnect.
+                        log.warning(
+                            "Ignoring retained command on %s; clear it with an empty "
+                            "retained publish",
+                            msg.topic,
+                        )
+                        return
+                    dk = parts[1]
+                    ctrl = parts[2]
+                    payload = msg.payload.decode("utf-8", errors="replace").strip().upper()
+                    self._handle_command(dk, ctrl, payload)
+            except Exception:
+                log.exception("Home Assistant command on %s failed", msg.topic)
 
         client.on_connect = on_connect
         client.on_disconnect = on_disconnect
