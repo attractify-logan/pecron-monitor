@@ -67,6 +67,14 @@ def select_device(config: dict, selector: str) -> dict:
 
 
 def main():
+    try:
+        _main()
+    except KeyboardInterrupt:
+        # Raised by the signal handler (or Ctrl-C) outside the monitor loop.
+        pass
+
+
+def _main():
     parser = argparse.ArgumentParser(description="Pecron Battery Monitor & Controller")
     parser.add_argument("--version", action="version", version=f"pecron-monitor {__version__}")
     parser.add_argument("--setup", action="store_true", help="Run setup wizard")
@@ -177,6 +185,10 @@ def main():
 
     def _signal_handler(sig, frame):
         monitor.stop()
+        # Raise so a sleep or blocking wait returns at once; finally blocks still
+        # clean up. Returning normally let the process sleep out the rest of the
+        # poll interval, so systemd SIGKILLed it at its 90 s stop timeout.
+        raise KeyboardInterrupt
 
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)

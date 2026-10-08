@@ -1,5 +1,8 @@
-"""--device selection: write commands must never fan out to every configured device."""
+"""CLI safety: --device selection for write commands, and prompt exit on SIGTERM."""
 
+import os
+import signal
+import time
 from unittest.mock import patch
 
 import pytest
@@ -80,3 +83,27 @@ def test_read_only_commands_still_cover_every_device(tmp_path, monkeypatch):
 
     assert code == 0
     assert len(monitor_cls.call_args.args[0]["devices"]) == 2
+
+
+def test_sigterm_interrupts_a_sleeping_monitor_and_exits_cleanly(tmp_path, monkeypatch):
+    # The handler used to only set a flag, so the process slept out the poll
+    # interval and systemd SIGKILLed it at the stop timeout.
+    def run(**kwargs):
+        os.kill(os.getpid(), signal.SIGTERM)
+        time.sleep(30)
+
+    previous = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+    started = time.monotonic()
+    try:
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.safe_dump(CONFIG))
+        monkeypatch.setattr("sys.argv", ["pecron-monitor", "--config", str(config_path)])
+        with patch("pecron_monitor.PecronMonitor") as monitor_cls:
+            monitor_cls.return_value.run.side_effect = run
+            pecron_monitor.main()
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+    assert time.monotonic() - started < 5
+    monitor_cls.return_value.stop.assert_called_once_with()
