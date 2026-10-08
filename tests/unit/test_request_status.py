@@ -415,3 +415,23 @@ def test_rediscover_device_replaces_transport_and_preserves_model_read_timeout(
     )
     assert monitor.local_transports[DEVICE_A] is replacement
     assert config["devices"][0]["lan_ip"] == "192.0.2.25"
+
+
+@pytest.mark.parametrize("read_error", [None, RuntimeError("read failed")])
+def test_tcp_session_is_closed_after_each_poll_read(make_config, read_error):
+    # The device drops sessions ~30 s after connect; a session left open would
+    # be dead by the next read or write.
+    monitor = _monitor(make_config)
+    local = MagicMock()
+    local.connected = True
+    if read_error:
+        local.read_status.side_effect = read_error
+    else:
+        local.read_status.return_value = {"battery_percentage": 55, "battery_temp": 19}
+    monitor.local_transports[DEVICE_A] = local
+    monitor._connect_local = MagicMock(return_value=True)
+
+    monitor._request_status()
+
+    local.read_status.assert_called_once_with()
+    local.disconnect.assert_called_once_with()

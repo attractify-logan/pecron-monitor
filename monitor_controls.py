@@ -69,14 +69,14 @@ class MonitorControlsMixin:
                 except Exception as e:
                     log.warning("BLE control failed: %s", e)
 
-            # Try TCP/WiFi local transport (reconnect if needed - Pecron closes TCP after each exchange)
+            # Try TCP/WiFi local transport on a fresh session: the device closes
+            # sessions ~30 s after connect, so an older one may already be dead.
             lt = self.local_transports.get(device_key)
             if lt:
-                if not lt.connected:
-                    try:
-                        self._connect_local(device_key)
-                    except Exception as e:
-                        log.debug("Local TCP reconnect failed for %s: %s", device_key, e)
+                try:
+                    self._connect_local(device_key)
+                except Exception as e:
+                    log.debug("Local TCP reconnect failed for %s: %s", device_key, e)
                 if lt.connected:
                     try:
                         if lt.send_control(ctrl["id"], value, ctrl_type, verify=verify):
@@ -90,6 +90,8 @@ class MonitorControlsMixin:
                             return True
                     except Exception as e:
                         log.warning("TCP control failed: %s", e)
+                    finally:
+                        lt.disconnect()
 
         # Fall back to cloud transports
         # Fix: Route non-boolean configurations (ENUM/INT) straight to REST API (issue #84)
@@ -165,12 +167,26 @@ class MonitorControlsMixin:
                 return None
         return None
 
+    def _current_control_value(self, device_key: str, control_code: str, attempts: int = 20):
+        """Request fresh status and return the control's normalized value, or None."""
+        self.latest_data.pop(device_key, None)
+        self._request_status()
+        for _ in range(attempts):
+            raw = self._extract_value_by_key(self.latest_data.get(device_key, {}), control_code)
+            value = self._normalize_probe_readback(raw)
+            if value is not None:
+                return value
+            time.sleep(0.5)
+        return None
+
     def probe_control_values(
         self, device_key: str, control_code: str, min_value: int = 0, max_value: int = 255
     ) -> dict:
         """Probe supported control values from min_value upward with set-then-readback validation.
 
-        For each candidate value:
+        Reads the control's current value first and refuses to probe if it is
+        unknown, because the probe always writes that value back when it ends,
+        including when it is interrupted. For each candidate value:
         1) Send control value
         2) Request status
         3) Read back same control key
@@ -205,34 +221,65 @@ class MonitorControlsMixin:
         stop_value = min_value
         last_readback = None
         reason = "readback_mismatch"
+        original = None
+        restored = None
 
-        for candidate in range(min_value, max_value + 1):
-            stop_value = candidate
+        if min_value <= max_value:
+            original = self._current_control_value(device_key, control_code)
+            if original is None:
+                return {
+                    "device_key": device_key,
+                    "control_code": control_code,
+                    "valid_values": [],
+                    "stop_value": min_value,
+                    "last_readback": None,
+                    "reason": "original_value_unknown",
+                    "original_value": None,
+                    "restored": None,
+                }
 
-            sent = self.send_control(device_key, control_code, candidate)
-            if not sent:
-                reason = "send_failed"
-                break
+        probed = False
+        try:
+            for candidate in range(min_value, max_value + 1):
+                stop_value = candidate
 
-            # Allow device to apply state before requesting readback.
-            time.sleep(3)
-            # Clear only this device's cached reading before fresh readback
-            self.latest_data.pop(device_key, None)
-            self._request_status()
-            time.sleep(1)
+                probed = True
+                sent = self.send_control(device_key, control_code, candidate)
+                if not sent:
+                    reason = "send_failed"
+                    break
 
-            kv = self.latest_data.get(device_key, {})
-            raw_readback = self._extract_value_by_key(kv, control_code)
-            normalized_readback = self._normalize_probe_readback(raw_readback)
-            last_readback = raw_readback
+                # Allow device to apply state before requesting readback.
+                time.sleep(3)
+                # Clear only this device's cached reading before fresh readback
+                self.latest_data.pop(device_key, None)
+                self._request_status()
+                time.sleep(1)
 
-            if normalized_readback != candidate:
-                reason = "readback_mismatch"
-                break
+                kv = self.latest_data.get(device_key, {})
+                raw_readback = self._extract_value_by_key(kv, control_code)
+                normalized_readback = self._normalize_probe_readback(raw_readback)
+                last_readback = raw_readback
 
-            valid_values.append(candidate)
-        else:
-            reason = "max_reached"
+                if normalized_readback != candidate:
+                    reason = "readback_mismatch"
+                    break
+
+                valid_values.append(candidate)
+            else:
+                reason = "max_reached"
+        finally:
+            if probed:
+                restored = bool(self.send_control(device_key, control_code, original))
+                if restored:
+                    log.info("Restored %s=%s on %s", control_code, original, device_key)
+                else:
+                    log.error(
+                        "Could not restore %s=%s on %s; set it back by hand",
+                        control_code,
+                        original,
+                        device_key,
+                    )
 
         return {
             "device_key": device_key,
@@ -241,6 +288,8 @@ class MonitorControlsMixin:
             "stop_value": stop_value,
             "last_readback": last_readback,
             "reason": reason,
+            "original_value": original,
+            "restored": restored,
         }
 
     # Convenience aliases
@@ -271,7 +320,21 @@ class MonitorControlsMixin:
             if isinstance(payload, bool):
                 is_on = payload
             else:
-                is_on = str(payload).upper() in ("ON", "TRUE", "1")
+                word = str(payload).strip().upper()
+                if word in ("ON", "TRUE", "1"):
+                    is_on = True
+                elif word in ("OFF", "FALSE", "0"):
+                    is_on = False
+                else:
+                    # Anything else used to mean OFF, so an empty or garbled
+                    # message could switch an output off.
+                    log.warning(
+                        "Ignoring HA %s command for %s with payload %r (expected ON or OFF)",
+                        control,
+                        device_key,
+                        payload,
+                    )
+                    return
             self.send_bool_control(device_key, code, is_on)
         elif control == "ac_charging_power":
             val_str = str(payload).strip()

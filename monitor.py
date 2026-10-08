@@ -80,6 +80,8 @@ class PecronMonitor(
         self._last_offline_at: dict[str, float] = {}
         self._last_online_at: dict[str, float] = {}
         self._restore_threads: dict[str, threading.Thread] = {}
+        # AC/DC switch state last seen above the restore thresholds, per device.
+        self._outputs_while_charged: dict[str, dict] = {}
 
     def _next_packet_id(self) -> int:
         self._packet_id = (self._packet_id + 1) % 65535
@@ -99,6 +101,7 @@ class PecronMonitor(
         if device_key not in self.latest_data:
             self.latest_data[device_key] = {}
         existing = self.latest_data[device_key]
+        controls = self._find_device(device_key).get("controls") or {}
 
         for key, value in new_kv.items():
             # Always update if key is new
@@ -106,11 +109,23 @@ class PecronMonitor(
                 existing[key] = value
                 continue
 
+            # Switch states are real values, not placeholders: False == 0 in
+            # Python, so the zero guard below would keep a switch ON forever
+            # after it turned OFF.
+            if isinstance(value, bool) or (
+                str((controls.get(key) or {}).get("type", "")).upper() == "BOOL"
+                and value is not None
+            ):
+                existing[key] = value
+                continue
+
             # For nested dicts (like host_packet_data_jdb), merge recursively
             if isinstance(value, dict) and isinstance(existing.get(key), dict):
                 for sub_k, sub_v in value.items():
                     # Only overwrite if new value is meaningful (non-zero/non-empty/non-None)
-                    if sub_v is not None and sub_v != 0 and sub_v != "":
+                    if isinstance(sub_v, bool) or (
+                        sub_v is not None and sub_v != 0 and sub_v != ""
+                    ):
                         existing[key][sub_k] = sub_v
                     elif sub_k not in existing[key]:
                         # If sub-key doesn't exist yet, set it even if zero
@@ -129,6 +144,8 @@ class PecronMonitor(
 
             # Update with new value
             existing[key] = value
+
+        self._note_outputs_while_charged(device_key)
 
     # --- Data processing ---
 

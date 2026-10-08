@@ -522,3 +522,18 @@ def test_aliases_forward_exact_control_codes_and_values():
         call(DEVICE_KEY, "dc_switch_hm", False),
         call(DEVICE_KEY, "ups_status_hm", 1),
     ]
+
+
+def test_bool_tcp_write_uses_fresh_session_and_closes_it_afterwards():
+    # A session that still reports connected may have been dropped by the
+    # device (~30 s idle limit), so every local write reconnects first.
+    monitor = make_monitor({"switch": {"id": 38, "type": "BOOL", "access": "RW"}})
+    tcp = transport(connected=True)
+    monitor.local_transports[DEVICE_KEY] = tcp
+    monitor._connect_local = MagicMock(return_value=True)
+
+    assert monitor.send_control(DEVICE_KEY, "switch", False) is True
+
+    monitor._connect_local.assert_called_once_with(DEVICE_KEY)
+    tcp.send_control.assert_called_once_with(38, False, "BOOL", verify=True)
+    tcp.disconnect.assert_called_once_with()

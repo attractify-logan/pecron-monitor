@@ -45,9 +45,10 @@ python3 pecron_monitor.py --status
 pecron-monitor
 python3 pecron_monitor.py
 
-# Control outputs
+# Control outputs. With several devices configured, --ac, --dc, --control and
+# --probe-control refuse to run until you pick one with --device (key or name)
 pecron-monitor --ac on
-pecron-monitor --dc off
+pecron-monitor --dc off --device E1500LFP
 
 # Offline mode (no internet, uses local WiFi/BLE only)
 pecron-monitor --local
@@ -70,7 +71,8 @@ pecron-monitor --raw
 # Diagnostics
 pecron-monitor --diagnose --verbose
 
-# Probe a control's supported values (tries 0,1,2,... until readback no longer matches)
+# Probe a control's supported values (tries 0,1,2,... until readback no longer matches).
+# It reads the current value first and writes it back when the probe ends or is interrupted.
 pecron-monitor --probe-control ac_discharge_power_hm --probe-max 40
 # Start probing at a custom value
 pecron-monitor --probe-control ac_discharge_power_hm --probe-min 10 --probe-max 40
@@ -155,7 +157,7 @@ restore_outputs_after_shutdown:
 
 > **`poll_interval` floor.** Pecron's cloud rate-limits per-account at roughly 1280 polls/day (issue #29). The monitor refuses to use cloud polling below 63s and warns between 63 and 69s. Below 63s the cap trips daily around 23:00 UTC with `code 4026 'Insufficient resources'`. The default of 70s leaves comfortable margin. Local/offline mode (`--local`) is not subject to this cloud quota and may use faster polling for LAN/BLE monitoring. Raise cloud polling further if you're seeing 4026 in your logs.
 
-> **Multi-packet local telemetry.** E3600/E3800-family devices may spread one snapshot across several TCP packets. Continuous local monitoring retries incomplete reads within the current poll cycle, stops as soon as telemetry is complete, and advances to the next future cycle boundary if retries overrun an interval.
+> **Multi-packet local telemetry.** E3600/E3800-family devices may spread one snapshot across several TCP packets. When local TCP is the only telemetry source (`--local`, or while the cloud is unreachable), continuous monitoring retries incomplete reads within the current poll cycle, stops as soon as telemetry is complete, and advances to the next future cycle boundary if retries overrun an interval.
 
 ### Alert Options
 

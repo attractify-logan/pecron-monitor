@@ -361,7 +361,7 @@ class MonitorPollingMixin:
                         log.warning("BLE read failed for %s: %s", dk, e)
 
             # Try TCP/WiFi local transport
-            # Pecron devices close TCP after each response, so always reconnect
+            # Use a fresh session each poll: the device closes sessions ~30 s after connect
             lt = self.local_transports.get(dk)
             if lt:
                 connected = self._connect_local(dk)
@@ -426,6 +426,10 @@ class MonitorPollingMixin:
                             # E3600/E3800 local TCP only returns settings, need cloud for telemetry
                     except Exception as e:
                         log.warning("Local TCP read failed for %s: %s", dk, e)
+                    finally:
+                        # The device drops idle sessions about 30 s after connect,
+                        # so don't leave this one open for a later read or write.
+                        lt.disconnect()
 
             # Always publish MQTT read request (even if local TCP connected)
             # E3600/E3800 local TCP only returns settings — we NEED cloud MQTT for telemetry
@@ -476,7 +480,11 @@ class MonitorPollingMixin:
         eligible = self._continuous_local_retry_device_keys()
         cycle_started = time.monotonic()
         self._request_status()
-        if not eligible:
+        # Retry only when local TCP is the sole telemetry source (#88). With cloud
+        # MQTT up, each retry also re-publishes a cloud read, and an E3800 whose
+        # local session carries settings only never completes: five cloud reads
+        # per cycle instead of one.
+        if not eligible or self.mqtt_client is not None:
             return 0.0
 
         incomplete = eligible.difference(self._local_data_keys)

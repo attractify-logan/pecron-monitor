@@ -108,11 +108,15 @@ def test_probe_missing_control_returns_exact_details_without_side_effects(make_c
     monitor._request_status.assert_not_called()
 
 
-def test_probe_send_failure_stops_before_cache_clear_request_or_sleep(make_config):
+def test_probe_send_failure_stops_then_restores_original_value(make_config):
     monitor = make_probe_monitor(make_config)
-    cached = {CONTROL_CODE: 99}
-    monitor.latest_data = {DEVICE_KEY: cached, "other-device": {"value": 8}}
+    monitor.latest_data = {DEVICE_KEY: {CONTROL_CODE: 99}, "other-device": {"value": 8}}
     monitor.send_control.return_value = False
+
+    def request():
+        monitor.latest_data[DEVICE_KEY] = {CONTROL_CODE: 9}
+
+    monitor._request_status.side_effect = request
 
     with patch("monitor_controls.time.sleep") as sleep:
         result = monitor.probe_control_values(DEVICE_KEY, CONTROL_CODE, min_value=3, max_value=7)
@@ -124,24 +128,26 @@ def test_probe_send_failure_stops_before_cache_clear_request_or_sleep(make_confi
         "stop_value": 3,
         "last_readback": None,
         "reason": "send_failed",
+        "original_value": 9,
+        "restored": False,
     }
-    monitor.send_control.assert_called_once_with(DEVICE_KEY, CONTROL_CODE, 3)
-    monitor._request_status.assert_not_called()
+    assert monitor.send_control.call_args_list == [
+        call(DEVICE_KEY, CONTROL_CODE, 3),
+        call(DEVICE_KEY, CONTROL_CODE, 9),
+    ]
+    monitor._request_status.assert_called_once_with()
     sleep.assert_not_called()
-    assert monitor.latest_data == {
-        DEVICE_KEY: cached,
-        "other-device": {"value": 8},
-    }
+    assert monitor.latest_data == {DEVICE_KEY: {CONTROL_CODE: 9}, "other-device": {"value": 8}}
 
 
-def test_probe_clears_only_target_cache_and_preserves_exact_operation_order(make_config):
+def test_probe_reads_original_then_probes_in_exact_order_and_restores(make_config):
     monitor = make_probe_monitor(make_config)
     monitor.latest_data = {
         DEVICE_KEY: {CONTROL_CODE: "stale"},
         "other-device": {"value": 8},
     }
     events = []
-    readbacks = iter((" 2.75 ", "wrong"))
+    readbacks = iter(("1", " 2.75 ", "wrong"))
 
     def send(device_key, control_code, value):
         events.append(("send", device_key, control_code, value))
@@ -164,6 +170,7 @@ def test_probe_clears_only_target_cache_and_preserves_exact_operation_order(make
         result = monitor.probe_control_values(DEVICE_KEY, CONTROL_CODE, min_value=2, max_value=5)
 
     assert events == [
+        ("request",),
         ("send", DEVICE_KEY, CONTROL_CODE, 2),
         ("sleep", 3),
         ("request",),
@@ -172,6 +179,7 @@ def test_probe_clears_only_target_cache_and_preserves_exact_operation_order(make
         ("sleep", 3),
         ("request",),
         ("sleep", 1),
+        ("send", DEVICE_KEY, CONTROL_CODE, 1),
     ]
     assert result == {
         "device_key": DEVICE_KEY,
@@ -180,6 +188,8 @@ def test_probe_clears_only_target_cache_and_preserves_exact_operation_order(make
         "stop_value": 3,
         "last_readback": "wrong",
         "reason": "readback_mismatch",
+        "original_value": 1,
+        "restored": True,
     }
     assert monitor.latest_data["other-device"] == {"value": 8}
     assert monitor.latest_data[DEVICE_KEY] == {"wrapper": [{"deeper": {CONTROL_CODE: "wrong"}}]}
@@ -187,7 +197,7 @@ def test_probe_clears_only_target_cache_and_preserves_exact_operation_order(make
 
 def test_probe_includes_both_bounds_and_reports_max_reached(make_config):
     monitor = make_probe_monitor(make_config)
-    readbacks = iter(("4.99", 5.75))
+    readbacks = iter(("7", "4.99", 5.75))
 
     def request():
         candidate_readback = next(readbacks)
@@ -206,12 +216,15 @@ def test_probe_includes_both_bounds_and_reports_max_reached(make_config):
         "stop_value": 5,
         "last_readback": 5.75,
         "reason": "max_reached",
+        "original_value": 7,
+        "restored": True,
     }
     assert monitor.send_control.call_args_list == [
         call(DEVICE_KEY, CONTROL_CODE, 4),
         call(DEVICE_KEY, CONTROL_CODE, 5),
+        call(DEVICE_KEY, CONTROL_CODE, 7),
     ]
-    assert monitor._request_status.call_args_list == [call(), call()]
+    assert monitor._request_status.call_args_list == [call(), call(), call()]
     assert sleep.call_args_list == [call(3), call(1), call(3), call(1)]
 
 
@@ -228,7 +241,43 @@ def test_probe_empty_reversed_bounds_report_max_reached_without_attempt(make_con
         "stop_value": 6,
         "last_readback": None,
         "reason": "max_reached",
+        "original_value": None,
+        "restored": None,
     }
     monitor.send_control.assert_not_called()
     monitor._request_status.assert_not_called()
     sleep.assert_not_called()
+
+
+def test_probe_refuses_to_write_when_original_value_is_unknown(make_config):
+    monitor = make_probe_monitor(make_config)
+
+    with patch("monitor_controls.time.sleep") as sleep:
+        result = monitor.probe_control_values(DEVICE_KEY, CONTROL_CODE, min_value=0, max_value=5)
+
+    assert result["reason"] == "original_value_unknown"
+    assert result["restored"] is None
+    monitor.send_control.assert_not_called()
+    monitor._request_status.assert_called_once_with()
+    assert sleep.call_args_list == [call(0.5)] * 20
+
+
+def test_interrupted_probe_still_restores_original_value(make_config):
+    monitor = make_probe_monitor(make_config)
+    monitor.send_control.return_value = True
+
+    def request():
+        monitor.latest_data[DEVICE_KEY] = {CONTROL_CODE: 2}
+
+    monitor._request_status.side_effect = request
+
+    with (
+        patch("monitor_controls.time.sleep", side_effect=KeyboardInterrupt),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        monitor.probe_control_values(DEVICE_KEY, CONTROL_CODE, min_value=0, max_value=40)
+
+    assert monitor.send_control.call_args_list == [
+        call(DEVICE_KEY, CONTROL_CODE, 0),
+        call(DEVICE_KEY, CONTROL_CODE, 2),
+    ]

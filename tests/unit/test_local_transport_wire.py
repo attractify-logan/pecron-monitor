@@ -11,6 +11,7 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 
 from local_transport import LocalTransport
+from protocol import _ttlv_parse_packet
 
 
 FAKE_KEY = bytes(range(16))
@@ -112,6 +113,49 @@ def test_receive_packet_discards_garbage_and_reassembles_fragmented_wire_packet(
     assert received == expected
     assert sock.incoming == b""
     assert any(size > 2 for size in sock.recv_sizes)
+
+
+def test_receive_packet_does_not_count_stuffing_bytes_towards_frame_length():
+    # 0xAA followed by 0xAA or 0x55 is stuffed with an extra 0x55 on the wire,
+    # but the length field counts unstuffed bytes.
+    payload = b"\x01\xaa\xaa\x02\xaa\x55\x03"
+    first = _packet(0x0014, payload, packet_id=0x0101)
+    second = _packet(0x0012, packet_id=0x0102)
+    assert len(first) > 4 + struct.unpack(">H", first[2:4])[0]
+    sock = ScriptedSocket(first + second, max_recv_size=3)
+    transport = _connected_transport(sock)
+
+    received = transport._recv_packet()
+
+    assert received == first
+    assert _ttlv_parse_packet(received)["payload"] == payload
+    assert transport._recv_packet() == second
+    assert sock.incoming == b""
+
+
+def _plaintext_whose_ciphertext_needs_stuffing():
+    for counter in range(200_000):
+        plaintext = struct.pack(">HI", (1 << 3) | 2, counter)
+        ciphertext = _encrypted_payload(plaintext)
+        if b"\xaa\xaa" in ciphertext or b"\xaa\x55" in ciphertext:
+            return plaintext, ciphertext
+    raise AssertionError("no stuffed ciphertext found")
+
+
+def test_read_status_decodes_frame_whose_ciphertext_contains_stuffed_bytes():
+    plaintext, ciphertext = _plaintext_whose_ciphertext_needs_stuffing()
+    sock = ScriptedSocket(
+        _packet(0x0012, packet_id=0x0201) + _packet(0x0014, ciphertext, packet_id=0x0202),
+        max_recv_size=7,
+    )
+    transport = _connected_transport(sock)
+    transport._first_read_done = True
+
+    with patch("local_transport.time.sleep"):
+        status = transport.read_status()
+
+    assert status
+    assert transport._decrypt(ciphertext) == plaintext
 
 
 def test_fixed_key_and_iv_aes_cbc_vector_round_trips():
@@ -257,3 +301,18 @@ def test_control_plaintext_and_write_frame_are_exact(
     assert sock.sent == [bytes.fromhex("aaaa00094c00010013deadbeef")]
     assert sock.sent[0][7:9] == b"\x00\x13"
     assert transport._connected is True
+
+
+def test_read_status_treats_peer_close_before_data_as_disconnect_without_retry(caplog):
+    sock = ScriptedSocket(b"")  # recv() returns b"": the device closed the session
+    transport = _connected_transport(sock)
+    transport._first_read_done = True
+
+    with patch("local_transport.time.sleep") as sleep:
+        status = transport.read_status()
+
+    assert status == {}
+    assert transport.connected is False
+    assert sock.sent == [bytes.fromhex("aaaa00051200010011")]
+    sleep.assert_not_called()
+    assert "No data fields" not in caplog.text

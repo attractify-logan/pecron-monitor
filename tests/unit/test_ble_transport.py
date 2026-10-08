@@ -129,6 +129,18 @@ class TestIndicationCodec:
             {"cmd": 0x0014, "packet_id": 8, "payload": b"second"},
         ]
 
+    def test_splits_packets_whose_payload_needs_byte_stuffing(self):
+        instance = make_transport()
+        first = _ttlv_build_packet(0x0014, b"\x01\xaa\xaa\x02\xaa\x55", packet_id=9)
+        second = _ttlv_build_packet(0x0014, b"second", packet_id=10)
+
+        parsed = instance._parse_all_packets(first + second)
+
+        assert parsed == [
+            {"cmd": 0x0014, "packet_id": 9, "payload": b"\x01\xaa\xaa\x02\xaa\x55"},
+            {"cmd": 0x0014, "packet_id": 10, "payload": b"second"},
+        ]
+
     def test_extracts_iv_from_bytes_field_in_handshake_packet(self):
         instance = make_transport()
         payload = _ttlv_build_bytes_field(1, b"0123456789abcdef")

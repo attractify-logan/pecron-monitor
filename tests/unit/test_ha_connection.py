@@ -397,3 +397,27 @@ def test_disconnect_without_client_is_a_no_op():
 
     assert bridge.disconnect() is None
     assert bridge.client is None
+
+
+def test_message_callback_ignores_retained_commands(monkeypatch, caplog):
+    # A retained OFF would otherwise be replayed on every reconnect.
+    bridge, client, _events = _configured_client(monkeypatch)
+    bridge._handle_command = MagicMock()
+    message = FakeMessage("pecron/DEV1/ac/set", b"OFF")
+    message.retain = True
+
+    with caplog.at_level(logging.WARNING, logger="pecron"):
+        client.on_message(client, None, message)
+
+    bridge._handle_command.assert_not_called()
+    assert "Ignoring retained command on pecron/DEV1/ac/set" in caplog.text
+
+
+def test_message_callback_survives_handler_errors_and_undecodable_payloads(monkeypatch):
+    # paho stops its network thread if a callback raises.
+    bridge, client, _events = _configured_client(monkeypatch)
+    bridge._handle_command = MagicMock(side_effect=RuntimeError("boom"))
+
+    client.on_message(client, None, FakeMessage("pecron/DEV1/ac/set", b"\xff\xfe"))
+
+    bridge._handle_command.assert_called_once()

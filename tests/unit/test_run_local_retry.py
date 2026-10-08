@@ -142,3 +142,22 @@ def test_elapsed_retry_time_never_creates_negative_or_stacked_cycle_delay(make_c
     assert request_count == 3
     assert clock.sleeps == [3, 4.0, 4.0]
     assert all(delay >= 0 for delay in clock.sleeps)
+
+
+def test_no_within_cycle_retries_while_cloud_mqtt_supplies_telemetry(make_config):
+    # Each retry re-publishes a cloud read; settings-only E3800 local sessions
+    # never complete, so retrying with MQTT up multiplied cloud reads by five.
+    monitor = make_monitor(make_config)
+    monitor.mqtt_client = MagicMock()
+    clock = FakeClock()
+    monitor._request_status = MagicMock()
+
+    with (
+        patch("monitor_polling.time.monotonic", side_effect=clock.monotonic),
+        patch("monitor_polling.time.sleep", side_effect=clock.sleep),
+    ):
+        elapsed = monitor._request_status_with_local_retries(25)
+
+    monitor._request_status.assert_called_once_with()
+    assert clock.sleeps == []
+    assert elapsed == 0.0

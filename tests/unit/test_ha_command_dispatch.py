@@ -223,3 +223,30 @@ class TestHaCommandMapMatchesDiscovery(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestStrictSwitchPayloads(unittest.TestCase):
+    """Only explicit ON/OFF words may switch an output (anything else used to mean OFF)."""
+
+    def test_on_and_off_words_are_accepted(self):
+        for payload, expected in (
+            ("ON", True),
+            ("true", True),
+            ("1", True),
+            ("OFF", False),
+            ("false", False),
+            ("0", False),
+            (" off ", False),
+        ):
+            with self.subTest(payload=payload):
+                m = make_monitor()
+                m._ha_command("dk0", "ac", payload)
+                m.send_bool_control.assert_called_once_with("dk0", "ac_switch_hm", expected)
+
+    def test_unrecognised_payloads_send_nothing(self):
+        for payload in ("", "TOGGLE", '{"state": "OFF"}', "of"):
+            with self.subTest(payload=payload):
+                m = make_monitor()
+                with self.assertLogs("pecron", level="WARNING"):
+                    m._ha_command("dk0", "ac", payload)
+                m.send_bool_control.assert_not_called()

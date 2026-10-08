@@ -143,13 +143,13 @@ def test_empty_persisted_rule_state_falls_back_to_configured_initial_state():
 
 def test_rule_cooldown_allows_action_at_exact_equality_and_preserves_shared_entries():
     monitor = _make_monitor([_rule("equality", {"set_ac": False}, cooldown_minutes=5)])
-    monitor.last_alert = {"rule_equality": 700.0, "DK": 999.0}
+    monitor.last_alert = {"rule_equality:DK": 700.0, "DK": 999.0}
 
     with patch("monitor_rules.time.time", return_value=1000.0):
         monitor._evaluate_rules("DK", {"voltage": 52.0}, 40)
 
     monitor.set_ac.assert_called_once_with("DK", False)
-    assert monitor.last_alert == {"rule_equality": 1000.0, "DK": 999.0}
+    assert monitor.last_alert == {"rule_equality:DK": 1000.0, "DK": 999.0}
 
 
 def test_shared_last_alert_cooldown_is_isolated_per_rule():
@@ -159,7 +159,7 @@ def test_shared_last_alert_cooldown_is_isolated_per_rule():
             _rule("fresh", {"set_dc": True}, cooldown_minutes=5),
         ]
     )
-    monitor.last_alert = {"rule_cooled": 950.0, "DK": 975.0}
+    monitor.last_alert = {"rule_cooled:DK": 950.0, "DK": 975.0}
 
     with patch("monitor_rules.time.time", return_value=1000.0):
         monitor._evaluate_rules("DK", {"voltage": 52.0}, 40)
@@ -167,8 +167,8 @@ def test_shared_last_alert_cooldown_is_isolated_per_rule():
     monitor.set_ac.assert_not_called()
     monitor.set_dc.assert_called_once_with("DK", True)
     assert monitor.last_alert == {
-        "rule_cooled": 950.0,
-        "rule_fresh": 1000.0,
+        "rule_cooled:DK": 950.0,
+        "rule_fresh:DK": 1000.0,
         "DK": 975.0,
     }
 
@@ -193,7 +193,7 @@ def test_missing_target_device_gates_all_actions_after_recording_cooldown(caplog
     monitor.set_ac.assert_not_called()
     monitor._set_rule_states.assert_not_called()
     monitor._run_rule_command.assert_not_called()
-    assert monitor.last_alert["rule_missing target"] == 1000.0
+    assert monitor.last_alert["rule_missing target:DK"] == 1000.0
     assert "target device MISSING not found, skipping" in caplog.text
 
 
@@ -270,7 +270,7 @@ def test_action_exception_aborts_remaining_actions_but_not_later_rules(caplog):
     monitor.set_ac.assert_called_once_with("DK", False)
     monitor.set_dc.assert_not_called()
     monitor.set_ups.assert_called_once_with("DK", True)
-    assert monitor.last_alert == {"rule_broken": 1000.0, "rule_independent": 1000.0}
+    assert monitor.last_alert == {"rule_broken:DK": 1000.0, "rule_independent:DK": 1000.0}
     assert "Rule evaluation error: control failed" in caplog.text
 
 
@@ -361,3 +361,20 @@ def test_run_command_timeout_propagates_without_retry_or_control_side_effects():
     monitor.set_ac.assert_not_called()
     monitor.set_dc.assert_not_called()
     monitor.set_ups.assert_not_called()
+
+
+def test_rule_cooldown_is_per_device():
+    # A low-battery rule that fired for one device must still fire for another
+    # device that crosses the threshold inside the cooldown window.
+    monitor = _make_monitor([_rule("low battery", {"set_ac": False}, cooldown_minutes=30)])
+    monitor.devices.append(
+        {"device_key": "DK2", "device_name": "TestDevice", "controls": {"ac_switch_hm": {}}}
+    )
+
+    with patch("monitor_rules.time.time", return_value=100_000.0):
+        monitor._evaluate_rules("DK", {"voltage": 52.0}, 40)
+    with patch("monitor_rules.time.time", return_value=100_060.0):
+        monitor._evaluate_rules("DK2", {"voltage": 52.0}, 40)
+        monitor._evaluate_rules("DK", {"voltage": 52.0}, 40)
+
+    assert monitor.set_ac.call_args_list == [(("DK", False),), (("DK2", False),)]
