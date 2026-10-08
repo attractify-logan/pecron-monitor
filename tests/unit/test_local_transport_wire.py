@@ -301,3 +301,18 @@ def test_control_plaintext_and_write_frame_are_exact(
     assert sock.sent == [bytes.fromhex("aaaa00094c00010013deadbeef")]
     assert sock.sent[0][7:9] == b"\x00\x13"
     assert transport._connected is True
+
+
+def test_read_status_treats_peer_close_before_data_as_disconnect_without_retry(caplog):
+    sock = ScriptedSocket(b"")  # recv() returns b"": the device closed the session
+    transport = _connected_transport(sock)
+    transport._first_read_done = True
+
+    with patch("local_transport.time.sleep") as sleep:
+        status = transport.read_status()
+
+    assert status == {}
+    assert transport.connected is False
+    assert sock.sent == [bytes.fromhex("aaaa00051200010011")]
+    sleep.assert_not_called()
+    assert "No data fields" not in caplog.text

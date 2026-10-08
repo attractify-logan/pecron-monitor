@@ -149,7 +149,7 @@ class LocalTransport:
             return True
 
         except Exception as e:
-            # Pecron devices close TCP after each read — reconnects are normal
+            # Connection refused or reset; the next poll reconnects
             log.debug("Local connect failed: %s", e)
             self.disconnect()
             return False
@@ -286,12 +286,21 @@ class LocalTransport:
                     except socket.timeout:
                         # No more packets available
                         break
+                    except (ConnectionError, OSError) as e:
+                        # Peer closed or reset the session: keep what arrived
+                        log.debug("Local connection lost during read: %s", e)
+                        self._connected = False
+                        break
                     except Exception as e:
                         log.debug("Packet read error: %s", e)
                         break
 
                 # Restore original timeout
                 self._sock.settimeout(original_timeout)
+
+                if not all_fields and not self._connected:
+                    log.debug("Local session closed before any data arrived")
+                    return {}
 
                 if not all_fields:
                     # E3800 quirk: Sometimes device needs time to prepare data after handshake
@@ -330,13 +339,20 @@ class LocalTransport:
                                     break
                             except socket.timeout:
                                 break
+                            except (ConnectionError, OSError) as e:
+                                log.debug("Local connection lost during retry read: %s", e)
+                                self._connected = False
+                                break
                             except Exception as e:
                                 log.debug("Retry packet read error: %s", e)
                                 break
                         self._sock.settimeout(original_timeout)
 
                     if not all_fields:
-                        log.warning("No data fields in local read response (even after retry)")
+                        if self._connected:
+                            log.warning("No data fields in local read response (even after retry)")
+                        else:
+                            log.debug("Local session closed before any data arrived")
                         return {}
 
                 log.debug(

@@ -69,14 +69,14 @@ class MonitorControlsMixin:
                 except Exception as e:
                     log.warning("BLE control failed: %s", e)
 
-            # Try TCP/WiFi local transport (reconnect if needed - Pecron closes TCP after each exchange)
+            # Try TCP/WiFi local transport on a fresh session: the device closes
+            # sessions ~30 s after connect, so an older one may already be dead.
             lt = self.local_transports.get(device_key)
             if lt:
-                if not lt.connected:
-                    try:
-                        self._connect_local(device_key)
-                    except Exception as e:
-                        log.debug("Local TCP reconnect failed for %s: %s", device_key, e)
+                try:
+                    self._connect_local(device_key)
+                except Exception as e:
+                    log.debug("Local TCP reconnect failed for %s: %s", device_key, e)
                 if lt.connected:
                     try:
                         if lt.send_control(ctrl["id"], value, ctrl_type, verify=verify):
@@ -90,6 +90,8 @@ class MonitorControlsMixin:
                             return True
                     except Exception as e:
                         log.warning("TCP control failed: %s", e)
+                    finally:
+                        lt.disconnect()
 
         # Fall back to cloud transports
         # Fix: Route non-boolean configurations (ENUM/INT) straight to REST API (issue #84)
