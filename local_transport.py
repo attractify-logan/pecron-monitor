@@ -171,7 +171,15 @@ class LocalTransport:
             self._sock = None
 
     def _recv_packet(self) -> bytes:
-        """Read one TTLV packet from socket."""
+        """Read one TTLV packet from socket.
+
+        Everything after the 0xAA 0xAA sync word is byte-stuffed: the sender
+        inserts 0x55 after any 0xAA followed by 0x55 or 0xAA. The length field
+        counts unstuffed bytes, so stuffing bytes must not count towards it or
+        the frame is cut short and its ciphertext fails to decrypt (about 1% of
+        E1500LFP status frames). Returns the raw stuffed frame, which
+        ``_ttlv_parse_packet`` unstuffs.
+        """
         buf = b""
         # Sync to 0xAA 0xAA
         while True:
@@ -180,32 +188,31 @@ class LocalTransport:
                 raise ConnectionError("Connection closed")
             buf += b
             if len(buf) >= 2 and buf[-2:] == b"\xaa\xaa":
-                buf = b"\xaa\xaa"
                 break
             if len(buf) > 200:
                 raise ValueError("No sync found")
 
-        # Read length (2 bytes) — careful with byte stuffing
-        len_raw = b""
-        while len(len_raw) < 2:
-            b = self._sock.recv(1)
-            if not b:
-                raise ConnectionError("Connection closed")
-            buf += b
-            if buf[-2] == 0xAA and b[0] == 0x55:
-                continue
-            len_raw += b
-
-        pkt_len = struct.unpack(">H", len_raw)[0]
-        remaining = pkt_len
-        while remaining > 0:
-            chunk = self._sock.recv(min(remaining, 4096))
+        raw = bytearray(b"\xaa\xaa")
+        unstuffed = bytearray()
+        prev = None  # the sync word itself is never stuffed
+        needed = 2  # the length field, then the rest of the frame
+        while len(unstuffed) < needed:
+            # Each raw byte yields at most one unstuffed byte, so this never
+            # reads past the end of the frame.
+            chunk = self._sock.recv(min(needed - len(unstuffed), 4096))
             if not chunk:
                 raise ConnectionError("Connection closed")
-            buf += chunk
-            remaining -= len(chunk)
+            raw += chunk
+            for byte in chunk:
+                if prev == 0xAA and byte == 0x55:
+                    prev = None  # stuffing byte
+                    continue
+                unstuffed.append(byte)
+                prev = byte
+            if needed == 2 and len(unstuffed) >= 2:
+                needed = 2 + struct.unpack(">H", bytes(unstuffed[:2]))[0]
 
-        return buf
+        return bytes(raw)
 
     def _decrypt(self, data: bytes) -> bytes:
         cipher = AES.new(self.auth_key, AES.MODE_CBC, self._iv)

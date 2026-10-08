@@ -6,6 +6,7 @@ Pecron devices using the TTLV (Tag-Type-Length-Value) protocol.
 """
 
 import struct
+from typing import Optional
 
 
 def _encode_varint(val: int) -> bytes:
@@ -75,6 +76,31 @@ def _ttlv_byte_unstuff(raw: bytes) -> bytes:
             out.append(raw[i])
             i += 1
     return bytes(out)
+
+
+def _ttlv_stuffed_frame_end(raw: bytes, start: int) -> Optional[int]:
+    """Return the end index of the stuffed frame whose sync word is at ``start``.
+
+    The length field counts unstuffed bytes, so stuffing bytes (0x55 after
+    0xAA) are skipped while counting. Returns None if ``raw`` ends first.
+    """
+    unstuffed = bytearray()
+    needed = 2
+    prev = None
+    i = start + 2
+    while len(unstuffed) < needed:
+        if i >= len(raw):
+            return None
+        byte = raw[i]
+        i += 1
+        if prev == 0xAA and byte == 0x55:
+            prev = None
+            continue
+        unstuffed.append(byte)
+        prev = byte
+        if needed == 2 and len(unstuffed) == 2:
+            needed = 2 + struct.unpack(">H", bytes(unstuffed))[0]
+    return i
 
 
 def _ttlv_build_packet(cmd: int, payload: bytes = b"", packet_id: int = 1) -> bytes:

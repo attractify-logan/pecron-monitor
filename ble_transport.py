@@ -19,6 +19,7 @@ from protocol import (
     _ttlv_build_packet,
     _ttlv_parse_fields,
     _ttlv_parse_packet,
+    _ttlv_stuffed_frame_end,
 )
 
 log = logging.getLogger("pecron")
@@ -109,11 +110,11 @@ class BLETransport:
         i = 0
         while i < len(raw) - 4:
             if raw[i] == 0xAA and raw[i + 1] == 0xAA:
-                pkt_len = struct.unpack(">H", raw[i + 2 : i + 4])[0]
-                total = 4 + pkt_len
-                if i + total <= len(raw):
-                    packets.append(_ttlv_parse_packet(raw[i : i + total]))
-                i += total
+                end = _ttlv_stuffed_frame_end(raw, i)
+                if end is None:
+                    break
+                packets.append(_ttlv_parse_packet(raw[i:end]))
+                i = end
             else:
                 i += 1
         return packets
