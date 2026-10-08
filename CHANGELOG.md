@@ -5,6 +5,27 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
+## [Unreleased]
+
+### Added
+- `--device KEY_OR_NAME` limits any mode to one configured device (matched by `device_key`, then name).
+
+### Changed
+- `--ac`, `--dc`, `--control` and `--probe-control` refuse to run without `--device` when more than one device is configured. They used to act on every device.
+- `--probe-control` reads the control's current value first, refuses to probe if it is unknown, and writes it back when the probe ends or is interrupted.
+- Home Assistant switch commands accept only ON/OFF (or TRUE/FALSE, 1/0). Other payloads, and retained command messages, are logged and ignored instead of switching the output off.
+- Within-cycle local retries for E3600/E3800 (#88) now run only when local TCP is the sole telemetry source. With cloud MQTT connected, each retry also re-sent a cloud read, so settings-only E3800 units used five cloud reads per cycle.
+- Rule cooldowns are tracked per device, so a rule that fires for one device no longer blocks it for the others.
+
+### Fixed
+- Local TCP and BLE framing counted byte-stuffing bytes towards the frame length, so about 1% of status frames were cut short, failed to decrypt and logged "No data fields in local read response (even after retry)".
+- Local TCP sessions are closed after every poll and write, and a session the device has closed is treated as disconnected. Units close sessions about 30 s after connect, so writes could go to a dead socket.
+- A switch turning OFF is now recorded. The packet merge treated `False` as an empty `0`, so AC/DC/UPS stayed ON in the monitor's state and in Home Assistant.
+- The restore-after-shutdown snapshot uses the AC/DC state last seen above the restore threshold, so outputs a unit reports as off while it shuts down are still restored.
+- A Home Assistant command callback error (e.g. a non-UTF-8 payload) no longer stops the MQTT network thread.
+- The monitor exits promptly on SIGTERM instead of sleeping out the poll interval until systemd kills it.
+
+
 ## [0.8.0] - 2026-07-18
 
 ### Added
