@@ -45,9 +45,10 @@ python3 pecron_monitor.py --status
 pecron-monitor
 python3 pecron_monitor.py
 
-# Control outputs
+# Control outputs. With several devices configured, --ac, --dc, --control and
+# --probe-control refuse to run until you pick one with --device (key or name)
 pecron-monitor --ac on
-pecron-monitor --dc off
+pecron-monitor --dc off --device E1500LFP
 
 # Offline mode (no internet, uses local WiFi/BLE only)
 pecron-monitor --local
@@ -70,7 +71,8 @@ pecron-monitor --raw
 # Diagnostics
 pecron-monitor --diagnose --verbose
 
-# Probe a control's supported values (tries 0,1,2,... until readback no longer matches)
+# Probe a control's supported values (tries 0,1,2,... until readback no longer matches).
+# It reads the current value first and writes it back when the probe ends or is interrupted.
 pecron-monitor --probe-control ac_discharge_power_hm --probe-max 40
 # Start probing at a custom value
 pecron-monitor --probe-control ac_discharge_power_hm --probe-min 10 --probe-max 40

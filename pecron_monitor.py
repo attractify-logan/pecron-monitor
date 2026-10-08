@@ -8,7 +8,8 @@ Usage:
     pecron-monitor                # Start monitoring
     pecron-monitor --local        # Run in offline/local-only mode (no cloud)
     pecron-monitor --status       # One-shot status check
-    pecron-monitor --ac on        # Turn AC output on
+    pecron-monitor --ac on        # Turn AC output on (add --device KEY_OR_NAME
+                                  # when several devices are configured)
     pecron-monitor --ac off       # Turn AC output off
     pecron-monitor --dc on        # Turn DC output on
     pecron-monitor --dc off       # Turn DC output off
@@ -40,6 +41,29 @@ from setup_wizard import setup_wizard
 
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 log = logging.getLogger("pecron")
+
+
+def _describe_devices(devices: list) -> str:
+    return "\n".join(f"  {d.get('device_key')}  {d.get('name', '')}".rstrip() for d in devices)
+
+
+def select_device(config: dict, selector: str) -> dict:
+    """Return a copy of config limited to the device matching --device.
+
+    Matches device_key first, then name, both case-insensitively. Raises
+    ValueError unless exactly one configured device matches.
+    """
+    devices = config.get("devices") or []
+    wanted = selector.strip().lower()
+    matches = [d for d in devices if str(d.get("device_key", "")).lower() == wanted]
+    if not matches:
+        matches = [d for d in devices if str(d.get("name", "")).lower() == wanted]
+    if len(matches) != 1:
+        problem = "matches several devices" if matches else "matches no configured device"
+        raise ValueError(
+            f"--device {selector!r} {problem}. Configured devices:\n{_describe_devices(devices)}"
+        )
+    return {**config, "devices": matches}
 
 
 def main():
@@ -105,6 +129,12 @@ def main():
         action="store_true",
         help="Run diagnostics: verify device binding, show MQTT topics, wait for data",
     )
+    parser.add_argument(
+        "--device",
+        metavar="KEY_OR_NAME",
+        help="Only use this configured device (device_key or name). Required for "
+        "--ac/--dc/--control/--probe-control when several devices are configured",
+    )
     parser.add_argument("--config", type=str, default=str(CONFIG_PATH), help="Config file path")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging")
     args = parser.parse_args()
@@ -127,6 +157,21 @@ def main():
 
     with open(config_path) as f:
         config = yaml.safe_load(f)
+
+    if args.device:
+        try:
+            config = select_device(config, args.device)
+        except ValueError as e:
+            print(e)
+            sys.exit(2)
+    writes = args.ac or args.dc or args.control or args.probe_control
+    if writes and not args.device and len(config.get("devices") or []) > 1:
+        # These commands act on every device in the config.
+        print(
+            "Several devices are configured: choose one with --device.\n"
+            f"{_describe_devices(config['devices'])}"
+        )
+        sys.exit(2)
 
     monitor = PecronMonitor(config, no_ble=args.no_ble, rest_only=args.rest_only)
 
@@ -303,6 +348,9 @@ def main():
                 print(
                     f"  Stopped at: {result['stop_value']} (reason={result['reason']}, readback={result['last_readback']})"
                 )
+            if result.get("restored") is not None:
+                state = "restored" if result["restored"] else "NOT restored, set it by hand"
+                print(f"  Original value {result['original_value']}: {state}")
 
         if monitor.mqtt_client:
             monitor.mqtt_client.loop_stop()

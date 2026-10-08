@@ -167,12 +167,26 @@ class MonitorControlsMixin:
                 return None
         return None
 
+    def _current_control_value(self, device_key: str, control_code: str, attempts: int = 20):
+        """Request fresh status and return the control's normalized value, or None."""
+        self.latest_data.pop(device_key, None)
+        self._request_status()
+        for _ in range(attempts):
+            raw = self._extract_value_by_key(self.latest_data.get(device_key, {}), control_code)
+            value = self._normalize_probe_readback(raw)
+            if value is not None:
+                return value
+            time.sleep(0.5)
+        return None
+
     def probe_control_values(
         self, device_key: str, control_code: str, min_value: int = 0, max_value: int = 255
     ) -> dict:
         """Probe supported control values from min_value upward with set-then-readback validation.
 
-        For each candidate value:
+        Reads the control's current value first and refuses to probe if it is
+        unknown, because the probe always writes that value back when it ends,
+        including when it is interrupted. For each candidate value:
         1) Send control value
         2) Request status
         3) Read back same control key
@@ -207,34 +221,65 @@ class MonitorControlsMixin:
         stop_value = min_value
         last_readback = None
         reason = "readback_mismatch"
+        original = None
+        restored = None
 
-        for candidate in range(min_value, max_value + 1):
-            stop_value = candidate
+        if min_value <= max_value:
+            original = self._current_control_value(device_key, control_code)
+            if original is None:
+                return {
+                    "device_key": device_key,
+                    "control_code": control_code,
+                    "valid_values": [],
+                    "stop_value": min_value,
+                    "last_readback": None,
+                    "reason": "original_value_unknown",
+                    "original_value": None,
+                    "restored": None,
+                }
 
-            sent = self.send_control(device_key, control_code, candidate)
-            if not sent:
-                reason = "send_failed"
-                break
+        probed = False
+        try:
+            for candidate in range(min_value, max_value + 1):
+                stop_value = candidate
 
-            # Allow device to apply state before requesting readback.
-            time.sleep(3)
-            # Clear only this device's cached reading before fresh readback
-            self.latest_data.pop(device_key, None)
-            self._request_status()
-            time.sleep(1)
+                probed = True
+                sent = self.send_control(device_key, control_code, candidate)
+                if not sent:
+                    reason = "send_failed"
+                    break
 
-            kv = self.latest_data.get(device_key, {})
-            raw_readback = self._extract_value_by_key(kv, control_code)
-            normalized_readback = self._normalize_probe_readback(raw_readback)
-            last_readback = raw_readback
+                # Allow device to apply state before requesting readback.
+                time.sleep(3)
+                # Clear only this device's cached reading before fresh readback
+                self.latest_data.pop(device_key, None)
+                self._request_status()
+                time.sleep(1)
 
-            if normalized_readback != candidate:
-                reason = "readback_mismatch"
-                break
+                kv = self.latest_data.get(device_key, {})
+                raw_readback = self._extract_value_by_key(kv, control_code)
+                normalized_readback = self._normalize_probe_readback(raw_readback)
+                last_readback = raw_readback
 
-            valid_values.append(candidate)
-        else:
-            reason = "max_reached"
+                if normalized_readback != candidate:
+                    reason = "readback_mismatch"
+                    break
+
+                valid_values.append(candidate)
+            else:
+                reason = "max_reached"
+        finally:
+            if probed:
+                restored = bool(self.send_control(device_key, control_code, original))
+                if restored:
+                    log.info("Restored %s=%s on %s", control_code, original, device_key)
+                else:
+                    log.error(
+                        "Could not restore %s=%s on %s; set it back by hand",
+                        control_code,
+                        original,
+                        device_key,
+                    )
 
         return {
             "device_key": device_key,
@@ -243,6 +288,8 @@ class MonitorControlsMixin:
             "stop_value": stop_value,
             "last_readback": last_readback,
             "reason": reason,
+            "original_value": original,
+            "restored": restored,
         }
 
     # Convenience aliases
