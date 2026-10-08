@@ -15,6 +15,30 @@ class MonitorRestoreMixin:
     def _restore_cfg(self) -> dict:
         return self.config.get("restore_outputs_after_shutdown", {}) or {}
 
+    def _note_outputs_while_charged(self, device_key: str):
+        """Remember AC/DC switch state while the battery is above the restore thresholds.
+
+        A unit can report its outputs as off while it shuts down, so the
+        shutdown snapshot prefers the state seen before the battery got low.
+        """
+        cfg = self._restore_cfg()
+        if not cfg.get("enabled", False):
+            return
+        kv = self.latest_data.get(device_key, {})
+        soc = extract_soc(kv)
+        if soc is None or soc <= int(cfg.get("shutdown_threshold_pct", 10)):
+            return
+        threshold_voltage = cfg.get("shutdown_threshold_voltage")
+        voltage = extract_voltage(kv)
+        if threshold_voltage is not None and (
+            voltage is None or voltage <= float(threshold_voltage)
+        ):
+            return
+        remembered = self.__dict__.setdefault("_outputs_while_charged", {})
+        remembered[device_key] = {
+            key: kv[key] for key in ("ac_switch_hm", "dc_switch_hm") if key in kv
+        }
+
     def _on_device_offline(self, device_key: str):
         """Called when a `is now offline` event arrives.
 
@@ -62,8 +86,9 @@ class MonitorRestoreMixin:
                 )
             return
 
-        ac_on = coerce_switch(kv.get("ac_switch_hm"))
-        dc_on = coerce_switch(kv.get("dc_switch_hm"))
+        before_low = self.__dict__.get("_outputs_while_charged", {}).get(device_key, {})
+        ac_on = coerce_switch(before_low.get("ac_switch_hm", kv.get("ac_switch_hm")))
+        dc_on = coerce_switch(before_low.get("dc_switch_hm", kv.get("dc_switch_hm")))
         # If either switch state is unobservable, snapshot what we have (default
         # missing to False rather than refuse to snapshot — restore worker will
         # only act on differences from observed live state anyway).

@@ -80,6 +80,8 @@ class PecronMonitor(
         self._last_offline_at: dict[str, float] = {}
         self._last_online_at: dict[str, float] = {}
         self._restore_threads: dict[str, threading.Thread] = {}
+        # AC/DC switch state last seen above the restore thresholds, per device.
+        self._outputs_while_charged: dict[str, dict] = {}
 
     def _next_packet_id(self) -> int:
         self._packet_id = (self._packet_id + 1) % 65535
@@ -142,6 +144,8 @@ class PecronMonitor(
 
             # Update with new value
             existing[key] = value
+
+        self._note_outputs_while_charged(device_key)
 
     # --- Data processing ---
 

@@ -265,6 +265,39 @@ class TestOnDeviceOffline:
 # -------------------- online event -> restore worker ------------------
 
 
+class TestSnapshotUsesOutputsSeenBeforeBatteryGotLow:
+    """Units can report outputs off while shutting down; the snapshot must keep
+    the state the user had before the battery got low."""
+
+    def test_outputs_reported_off_during_shutdown_are_not_snapshotted(self, tmp_state_path):
+        m = _make_monitor(restore_cfg={"enabled": True, "shutdown_threshold_pct": 10})
+        m._merge_device_data(
+            "DK", {"battery_percentage": 40, "ac_switch_hm": True, "dc_switch_hm": True}
+        )
+        m._merge_device_data(
+            "DK", {"battery_percentage": 3, "ac_switch_hm": False, "dc_switch_hm": False}
+        )
+        assert m.latest_data["DK"]["ac_switch_hm"] is False
+
+        m._on_device_offline("DK")
+
+        snap = output_state.get("DK")
+        assert (snap.ac_on, snap.dc_on) == (True, True)
+
+    def test_output_turned_off_before_battery_got_low_stays_off(self, tmp_state_path):
+        m = _make_monitor(restore_cfg={"enabled": True, "shutdown_threshold_pct": 10})
+        m._merge_device_data(
+            "DK", {"battery_percentage": 60, "ac_switch_hm": True, "dc_switch_hm": True}
+        )
+        m._merge_device_data("DK", {"battery_percentage": 50, "ac_switch_hm": False})
+        m._merge_device_data("DK", {"battery_percentage": 4})
+
+        m._on_device_offline("DK")
+
+        snap = output_state.get("DK")
+        assert (snap.ac_on, snap.dc_on) == (False, True)
+
+
 class TestOnDeviceOnline:
     def test_disabled_does_nothing(self, tmp_state_path):
         m = _make_monitor(restore_cfg={"enabled": False})
