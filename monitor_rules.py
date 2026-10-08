@@ -289,14 +289,16 @@ class MonitorRulesMixin:
                 ):
                     continue
 
-                # Check cooldown
+                # Check cooldown, per device: with one shared slot, a rule
+                # that fired for one device skipped every other device.
                 rule_id = rule.get("name", str(rule))
+                cooldown_key = f"rule_{rule_id}:{device_key}"
                 cooldown = rule.get("cooldown_minutes", 5) * 60
                 now_ts = time.time()
-                last = self.last_alert.get(f"rule_{rule_id}", 0)
+                last = self.last_alert.get(cooldown_key, 0)
                 if now_ts - last < cooldown:
                     continue
-                self.last_alert[f"rule_{rule_id}"] = now_ts
+                self.last_alert[cooldown_key] = now_ts
 
                 # Execute action
                 target_dk = action.get("device_key", device_key)
