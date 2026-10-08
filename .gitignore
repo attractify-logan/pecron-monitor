@@ -10,3 +10,5 @@ __pycache__/
 .pytest_cache/
 htmlcov/
 *.egg-info/
+build/
+dist/

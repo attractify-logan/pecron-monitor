@@ -5,7 +5,7 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
-## [Unreleased]
+## [0.8.1] - 2026-10-08
 
 ### Added
 - `--device KEY_OR_NAME` limits any mode to one configured device (matched by `device_key`, then name).

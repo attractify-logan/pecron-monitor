@@ -1,6 +1,6 @@
 # Pecron Battery Monitor
 
-**v0.8.0** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
+**v0.8.1** · [Changelog](CHANGELOG.md) · [Latest release](https://github.com/attractify-logan/pecron-monitor/releases/latest) · [Project board](https://github.com/users/attractify-logan/projects/1)
 
 Monitor and control Pecron portable power stations from the command line — no phone app required.
 
@@ -195,6 +195,12 @@ skip.
 
 Actions: `set_ac`, `set_dc`, `set_ups` (true/false), `set_state`, `run_command`
 
+With several devices, each rule is checked against every device and acts on the
+device that triggered it. Add `device_key` to a rule to watch only that device,
+or put `device_key` under `action` to act on a different device.
+`cooldown_minutes` (default 5) is tracked per device, so a rule that fired for
+one device still fires for another.
+
 Rule state is persisted at `~/.pecron-monitor-rules.json` (override with
 `rule_state.path`) and survives service restarts. The simplest form is a single
 string state: set `rule_state.initial_state: normal`, gate rules with
@@ -222,7 +228,9 @@ AC/DC switch state if the device goes offline at or below
 percentage threshold or the voltage threshold can trigger the snapshot. When the
 unit later comes back online after `minimum_offline_seconds`, the monitor retries
 the saved AC/DC commands until telemetry confirms the switches match or
-`retry_timeout_seconds` elapses.
+`retry_timeout_seconds` elapses. The snapshot uses the AC/DC state last seen
+while the battery was above the thresholds, because some units report their
+outputs as off while they shut down.
 
 ## Offline Mode
 
@@ -273,6 +281,10 @@ homeassistant:
 ```
 
 Run with `--homeassistant` or just start normally (auto-detects if enabled). Your Pecron appears in HA with battery sensors, power sensors, remaining time, and AC/DC/UPS switches.
+
+Switch command topics (`pecron/<device_key>/<switch>/set`) accept `ON` or `OFF`
+(also `TRUE`/`FALSE`, `1`/`0`). Any other payload, and any retained message on a
+command topic, is logged and ignored, so publish commands without the retain flag.
 
 By default, the bridge clears each current retained discovery topic before
 republishing it on startup. This makes Home Assistant pick up discovery payload
