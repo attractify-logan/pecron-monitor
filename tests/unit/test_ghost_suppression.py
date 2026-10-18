@@ -339,6 +339,31 @@ class TestSocFallback(unittest.TestCase):
             "on live host packets even after a prior overall packet",
         )
 
+    def test_overall_packets_update_soc_after_host_packet(self):
+        """Issue #104: E500LFP local TCP sends only overall-shape packets
+        (top-level battery_percentage, no host_packet_data_jdb). After one
+        cloud host packet, soc_percent must still follow each local reading
+        instead of being reset to the cached host_percent."""
+        b = make_bridge()
+
+        kv_cloud_host = {
+            "battery_percentage": 35,
+            "host_packet_data_jdb": {
+                "host_packet_voltage": 13.1,
+                "host_packet_electric_percentage": 35,
+            },
+        }
+        b.publish_state("DEV1", kv_cloud_host)
+        self.assertEqual(b._state_cache["DEV1"].get("soc_percent"), 35)
+
+        for pct in (30, 23):
+            b.publish_state("DEV1", {"battery_percentage": pct, "total_output_power": 38})
+            self.assertEqual(
+                b._state_cache["DEV1"].get("soc_percent"),
+                pct,
+                "overall-shape packets must update soc_percent, not mirror the stale host_percent",
+            )
+
 
 # -------------------- Total power fallback (issue #48) --------------------
 
