@@ -5,6 +5,12 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
+## [Unreleased]
+
+### Fixed
+- Home Assistant's Battery (SOC) sensor follows every local reading again. After one cloud packet with host data, each local read reset SOC to that packet's value, so on units whose local TCP sends only top-level fields (E500LFP) SOC froze until the next cloud report (#104).
+
+
 ## [0.8.1] - 2026-10-08
 
 ### Added

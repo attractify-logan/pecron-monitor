@@ -487,9 +487,14 @@ class HomeAssistantStateMixin:
         # differ, and the explicit overall-shape reading is canonical.
         # Pack processing runs earlier in this function, so pack_*_status in
         # cache already reflects this packet's pack state when we get here.
+        # Overall-shape packets keep the SOC they just set: E500LFP local TCP
+        # sends only overall packets, and mirroring the cached host % there
+        # froze SOC at the last cloud host packet (issue #104).
         has_pack = any(cache.get(f"pack_{i}_status") for i in range(4))
-        if cache.get("host_percent") is not None and (
-            not has_pack or cache.get("soc_percent") is None
+        if (
+            packet_has_host
+            and cache.get("host_percent") is not None
+            and (not has_pack or cache.get("soc_percent") is None)
         ):
             cache["soc_percent"] = cache["host_percent"]
 
