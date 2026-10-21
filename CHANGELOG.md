@@ -5,7 +5,7 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
-## [Unreleased]
+## [0.8.4] - 2026-10-21
 
 ### Fixed
 - Local TCP and BLE reads decode expansion-pack slots correctly. The decoder had the pack status and battery % fields swapped (TSL ids 2 and 6), so every LAN read showed an empty slot as connected and every cloud packet nulled it again, and Home Assistant flipped between values and Unknown every few minutes. The old "EP3000 swap" workaround for this is removed; it would now corrupt real packs reporting status 0.
