@@ -253,13 +253,16 @@ TSL_STRUCT = {
         1: "dc_input_power",
     },
     "charging_pack_data_jdb": {
-        # Array element struct fields
+        # Array element struct fields, ids from the cloud productTSL for
+        # E1500LFP and E3800LFP. Status is 2 and battery % is 6; earlier
+        # versions had them swapped, so every LAN read showed empty slots as
+        # connected.
         1: "charging_pack_num",
-        2: "charging_pack_battery",
+        2: "charging_pack_status",
         3: "charging_pack_voltage",
         4: "charging_pack_current",
         5: "charging_pack_temp",
-        6: "charging_pack_status",
+        6: "charging_pack_battery",
     },
 }
 

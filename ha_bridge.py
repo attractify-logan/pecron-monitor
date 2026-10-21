@@ -59,6 +59,8 @@ class HomeAssistantBridge(HomeAssistantDiscoveryMixin, HomeAssistantStateMixin):
         # (device_key, port_name) set: ports we've already published discovery
         # for since this bridge connected.
         self._deferred_ports_published: set = set()
+        # (device_key, slot) set: expansion-pack slots seen with a pack attached.
+        self._deferred_packs_published: set = set()
 
         # Cache last-known-good values per device so partial payloads don't zero-out entities
         self._state_cache = {}  # device_key -> dict of last published fields

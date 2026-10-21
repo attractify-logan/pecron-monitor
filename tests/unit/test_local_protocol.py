@@ -136,11 +136,11 @@ def test_tsl_translation_collects_nested_charging_pack_structs():
         (36, "STRUCT", 2),
         (1, "STRUCT", 3),
         (1, "NUM", 1),
-        (2, "NUM", 76),
+        (6, "NUM", 76),
         (3, "NUM", 48.6),
         (2, "STRUCT", 3),
         (1, "NUM", 2),
-        (2, "NUM", 64),
+        (2, "NUM", 3),
         (99, "BYTES", b"\x01\x02"),
     ]
 
@@ -153,7 +153,7 @@ def test_tsl_translation_collects_nested_charging_pack_structs():
             },
             {
                 "charging_pack_num": 2,
-                "charging_pack_battery": 64,
+                "charging_pack_status": 3,
                 "field_99": b"\x01\x02",
             },
         ]

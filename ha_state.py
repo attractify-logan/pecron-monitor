@@ -378,14 +378,12 @@ class HomeAssistantStateMixin:
                         cache[f"pack_{i}_{suffix}"] = None
                     continue
 
+                # Register this slot's entities the first time it reports a pack.
+                self._ensure_pack_discovery(device_key, i)
                 cache[f"pack_{i}_status"] = PACK_STATUS_LABELS.get(status_val, str(status_val))
 
                 try:
-                    bat = int(float(pack.get("charging_pack_battery", 0)))
-                    # Apply same swap fix: if battery=0 and status looks like a percentage
-                    if bat == 0 and 5 <= status_val <= 100:
-                        bat = status_val
-                    cache[f"pack_{i}_battery"] = bat
+                    cache[f"pack_{i}_battery"] = int(float(pack.get("charging_pack_battery", 0)))
                 except (TypeError, ValueError):
                     pass
 

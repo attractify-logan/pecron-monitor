@@ -168,35 +168,6 @@ class PecronMonitor(
                 if host_pct is not None and host_pct > 0:
                     kv["battery_percentage"] = host_pct
 
-        # Fix EP3000 charging_pack_battery field swap (applies to ALL sources)
-        # Some devices report battery % in charging_pack_status instead of charging_pack_battery
-        packs = kv.get("charging_pack_data_jdb", [])
-        if isinstance(packs, list):
-            for pack in packs:
-                try:
-                    pack_battery = int(float(pack.get("charging_pack_battery", 0)))
-                    pack_status = int(float(pack.get("charging_pack_status", 0)))
-                except (ValueError, TypeError):
-                    continue
-                # If battery is 0 and status looks like a percentage (>4), swap them
-                # Status enum: 0=no charge, 1=cascade charging, 2=balance no charge,
-                #              3=balanced charging, 4=no connection — NOT percentages
-                # Also swap in the other direction if needed
-                if pack_battery == 0 and 5 <= pack_status <= 100:
-                    pack["charging_pack_battery"] = pack_status
-                    pack["charging_pack_status"] = 0
-                    log.debug(
-                        "Swapped charging_pack fields: battery was 0, using status=%d%%",
-                        pack_status,
-                    )
-                elif pack_status == 0 and 5 <= pack_battery <= 100:
-                    pack["charging_pack_status"] = pack_battery
-                    pack["charging_pack_battery"] = 0
-                    log.debug(
-                        "Swapped charging_pack fields: status was 0, using battery=%d%% as status",
-                        pack_battery,
-                    )
-
         battery_pct = int(_get_kv(kv, SENSOR_FIELDS["battery_percent"], -1))
         voltage = float(_get_kv(kv, SENSOR_FIELDS["voltage"], 0))
         temp = int(_get_kv(kv, SENSOR_FIELDS["temperature"], 0))

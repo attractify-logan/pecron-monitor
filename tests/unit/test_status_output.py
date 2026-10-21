@@ -68,8 +68,8 @@ def test_status_once_exact_output_for_e1500_and_e3800(capsys):
                         "charging_pack_voltage": 51.2,
                     },
                     {
-                        "charging_pack_status": 87,
-                        "charging_pack_battery": 0,
+                        "charging_pack_status": 0,
+                        "charging_pack_battery": 87,
                         "charging_pack_voltage": 50,
                     },
                     {
