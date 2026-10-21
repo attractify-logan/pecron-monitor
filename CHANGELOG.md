@@ -5,6 +5,13 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
+## [Unreleased]
+
+### Fixed
+- The monitor no longer crashes with `UnboundLocalError: warmup_start` when it starts while the internet is down and cloud MQTT recovers later. After a power cut this crash restarted the service into the bug below.
+- The Home Assistant bridge keeps running when the broker accepts the connection before `loop_start()` returns. `on_connect` published discovery through a client that was not assigned yet, the paho network thread died, and Home Assistant stopped getting updates while the monitor kept logging readings.
+
+
 ## [0.8.2] - 2026-10-18
 
 ### Fixed
