@@ -64,11 +64,11 @@ def _full_telemetry():
         "auto_light_flag_as": "on",
         "ac_charging_power_ios": "600",
         "ups_start_charge_value_as": 20,
-        "device_standy_times_as": 3,
-        "machine_screen_light_as": 75,
-        "ac_output_voltage_io": 230,
-        "ac_output_frequency_io": 60,
-        "noastime_io": 15,
+        "device_standy_times_as": 4,
+        "machine_screen_light_as": 4,
+        "ac_output_voltage_io": 2,
+        "ac_output_frequency_io": 1,
+        "noastime_io": 2,
         "charging_limit_voltage": 5,
         "discharge_limiting_voltage": "4",
         "charging_current_limit": 7,
@@ -138,11 +138,11 @@ def _expected_full_state():
         "auto_light_flag_as": "ON",
         "ac_charging_power_ios": "600",
         "ups_start_charge_value_as": 20,
-        "device_standy_times_as": 3,
-        "machine_screen_light_as": 75,
-        "ac_output_voltage_io": 230,
-        "ac_output_frequency_io": 60,
-        "noastime_io": 15,
+        "device_standy_times_as": "Always On",
+        "machine_screen_light_as": "100%",
+        "ac_output_voltage_io": "120V",
+        "ac_output_frequency_io": "60Hz",
+        "noastime_io": "2 Hours",
         "charging_limit_voltage": "14.6V",
         "discharge_limiting_voltage": "12.0V",
         "charging_current_limit": "120A",
@@ -201,6 +201,9 @@ def test_publish_state_emits_exact_comprehensive_payload_and_defers_port_discove
 
     expected_state = _expected_full_state()
     state_call = call("pecron/DEV1/state", json.dumps(expected_state), qos=1, retain=True)
+    assert bridge.client.publish.call_args_list[0] == call(
+        "pecron/DEV1/availability", "online", qos=1, retain=True
+    )
     assert bridge.client.publish.call_args_list[-1] == state_call
 
     config_calls = [
@@ -264,7 +267,7 @@ def test_publish_state_emits_exact_comprehensive_payload_and_defers_port_discove
             "ac_input_power": 0,
             "ac_switch": "OFF",
             "device_touch_locking_as": "OFF",
-            "noastime_io": 0,
+            "noastime_io": "Off",
             "ac_output_power": 0,
             "ac_output_voltage": 0,
             "dc_output_power": 0,
@@ -313,6 +316,7 @@ def test_enabled_energy_integrator_receives_only_observed_power_sources():
         "ac_input_energy": 0.123456789,
         "ac_output_energy": 1,
     }
-    bridge.client.publish.assert_called_once_with(
-        "pecron/DEV1/state", json.dumps(expected), qos=1, retain=True
-    )
+    assert bridge.client.publish.call_args_list == [
+        call("pecron/DEV1/availability", "online", qos=1, retain=True),
+        call("pecron/DEV1/state", json.dumps(expected), qos=1, retain=True),
+    ]

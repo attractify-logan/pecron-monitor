@@ -275,6 +275,7 @@ homeassistant:
   mqtt_password: "pass"
   discovery_prefix: "homeassistant"
   clear_discovery_on_startup: true
+  stale_after: 600
   energy_sensors: true
   energy_max_gap_seconds: 1800
   # energy_state_path: "~/.pecron-monitor-energy.json"
@@ -290,7 +291,13 @@ By default, the bridge clears each current retained discovery topic before
 republishing it on startup. This makes Home Assistant pick up discovery payload
 field changes after a service restart instead of requiring a manual MQTT
 integration reload. Set `clear_discovery_on_startup: false` if you need the old
-publish-only behavior.
+publish-only behavior. A reconnect to the broker republishes without clearing.
+
+Entities go Unavailable instead of freezing at their last values. Each one
+follows `pecron/bridge/availability` (the bridge's MQTT last will, so a stopped
+or crashed monitor shows Unavailable) and `pecron/<device_key>/availability`,
+which turns `offline` after `stale_after` seconds (default 600) with no reading
+from cloud, LAN or Bluetooth. Keep `stale_after` above a few poll intervals.
 
 ### Energy Dashboard
 

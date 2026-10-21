@@ -483,6 +483,7 @@ class MonitorCloudMixin:
                 # connect at startup or was lost.
                 if self.ha_bridge:
                     self.ha_bridge.try_reconnect()
+                    self.ha_bridge.check_availability()
 
                 cycle_elapsed = self._request_status_with_local_retries(poll_interval)
 

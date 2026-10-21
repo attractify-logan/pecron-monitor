@@ -11,6 +11,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This project use
 - Local TCP and BLE reads decode expansion-pack slots correctly. The decoder had the pack status and battery % fields swapped (TSL ids 2 and 6), so every LAN read showed an empty slot as connected and every cloud packet nulled it again, and Home Assistant flipped between values and Unknown every few minutes. The old "EP3000 swap" workaround for this is removed; it would now corrupt real packs reporting status 0.
 - Expansion-pack entities (`pack_0..3_*`) are created only for slots that report an attached pack. Upgraded installs lose the 20 empty pack entities per power station on the first start.
 - After a reconnect to the Home Assistant broker, DC-input port entities and pack entities already seen are republished instead of being removed until the next restart.
+- Home Assistant no longer rejects the Bypass Mode discovery payload on every start (`required key not provided @ data['command_topic']`). It is now a read-only `binary_sensor`, published only when the device's TSL has `bypass_enable`; E1500LFP and E3800LFP do not, so they lose the entity.
+- The UPS Charge Threshold and AC Charging Power selects no longer receive `%` or the whole state JSON when a payload lacks their field.
+- The Expansion Pack sensor shows On/Off. These units never send `add_bat_status_hm`, so it sat at Unknown and logged a template warning on every state update; it is now derived from the pack slots when the device omits it.
+- Screen Brightness, AC Output Voltage/Frequency Setting, No-Output Auto-Off Timer and Standby Timeout show their labels (`100%`, `120V`, `60Hz`, `Off`) instead of raw indices.
+- Restarting the monitor no longer sets text sensors such as Device Status to an empty string. The bridge reads its retained state back on connect, so the first payload carries every field.
+- UPS Mode is a read-only `binary_sensor` when the device's TSL marks `ups_status_hm` read-only (E1500LFP and E3800LFP do). The switch could never change anything: the monitor refuses to write a read-only control.
+- A Home Assistant command and a poll on the same device no longer share a local TCP session. A poll that finished mid-command closed the socket under the write (`[Errno 9] Bad file descriptor`), and the command fell back to the cloud.
+- `clear_discovery_on_startup` clears discovery only on the first connect. It used to run on every broker reconnect, removing and re-creating every entity.
+
+### Added
+- Home Assistant availability. Every entity follows `pecron/bridge/availability` (the bridge's MQTT last will, so a crashed or stopped monitor shows Unavailable) and `pecron/<device_key>/availability`, which goes offline after `homeassistant.stale_after` seconds (default 600) with no reading from any source. Entities used to keep their last values forever.
 
 
 ## [0.8.3] - 2026-10-21

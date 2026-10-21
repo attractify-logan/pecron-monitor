@@ -199,14 +199,14 @@ def test_tsl_capabilities_are_the_only_catalog_difference():
     assert minimal - all_capabilities == set()
 
 
-def test_clear_then_republish_is_exact_and_resets_bookkeeping_each_pass():
+def test_clear_then_republish_only_on_first_pass_and_resets_bookkeeping_each_pass():
     catalog_name, device_key, model, controls, command_topics = CASES[0]
     bridge = _bridge(_device(device_key, model, controls), clear=True)
     expected_refs = set(CATALOG["catalogs"][catalog_name])
     expected_current_topics = {_topic(ref, device_key) for ref in expected_refs}
     expected_stale_topics = {_topic(ref, device_key) for ref in CATALOG["stale"][catalog_name]}
 
-    for _ in range(2):
+    for first_pass in (True, False):
         bridge.client.reset_mock()
         bridge._publish_discovery()
         calls_by_topic = {}
@@ -217,9 +217,12 @@ def test_clear_then_republish_is_exact_and_resets_bookkeeping_each_pass():
         assert set(calls_by_topic) == expected_current_topics | expected_stale_topics
         for topic in expected_current_topics:
             payloads = calls_by_topic[topic]
-            assert len(payloads) == 2
-            assert payloads[0] == ""
-            assert json.loads(payloads[1])["unique_id"].startswith(f"pecron_{device_key}_")
+            # A broker reconnect republishes without clearing: clearing removed
+            # and re-created every entity in Home Assistant.
+            assert len(payloads) == (2 if first_pass else 1)
+            if first_pass:
+                assert payloads[0] == ""
+            assert json.loads(payloads[-1])["unique_id"].startswith(f"pecron_{device_key}_")
         for topic in expected_stale_topics:
             assert calls_by_topic[topic] == [""]
 

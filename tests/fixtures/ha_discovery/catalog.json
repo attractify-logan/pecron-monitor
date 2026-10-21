@@ -8,13 +8,22 @@
       "payload_on": "ON",
       "payload_off": "OFF",
       "unique_id": "pecron_$DEVICE_KEY_expansion_pack",
-      "entity_category": "diagnostic"
+      "entity_category": "diagnostic",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "select/ac_charging_power": {
       "name": "AC Charging Power Setting",
       "icon": "mdi:flash",
       "state_topic": "pecron/$DEVICE_KEY/state",
-      "value_template": "{{ (value_json.ac_charging_power_ios | int * 10) ~ '%' if value_json.ac_charging_power_ios is not none else none }}",
+      "value_template": "{% set value = value_json.ac_charging_power_ios | default(none) %}{% if value is not none %}{{ (value | int * 10) ~ '%' }}{% endif %}",
       "options": [
         "0%",
         "10%",
@@ -30,14 +39,22 @@
       ],
       "command_topic": "pecron/$DEVICE_KEY/ac_charging_power/set",
       "unique_id": "pecron_$DEVICE_KEY_ac_charging_power",
-      "entity_category": "config"
+      "entity_category": "config",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "select/ups_charge_threshold": {
       "name": "UPS Charge Threshold",
       "icon": "mdi:battery-charging",
-      "unit_of_measurement": "%",
       "state_topic": "pecron/$DEVICE_KEY/state",
-      "value_template": "{{ value_json.ups_start_charge_value_as ~ '%' if value_json.ups_start_charge_value_as is not none else none }}",
+      "value_template": "{% set value = value_json.ups_start_charge_value_as | default(none) %}{% if value is not none %}{{ (value | int) ~ '%' }}{% endif %}",
       "options": [
         "30%",
         "40%",
@@ -50,7 +67,16 @@
       ],
       "command_topic": "pecron/$DEVICE_KEY/ups_charge_threshold/set",
       "unique_id": "pecron_$DEVICE_KEY_ups_charge_threshold",
-      "entity_category": "config"
+      "entity_category": "config",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/ac_frequency_setting": {
       "name": "AC Output Frequency Setting",
@@ -58,7 +84,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.ac_output_frequency_io }}",
       "unique_id": "pecron_$DEVICE_KEY_ac_frequency_setting",
-      "entity_category": "diagnostic"
+      "entity_category": "diagnostic",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/ac_input": {
       "name": "AC Input Power",
@@ -68,7 +103,16 @@
       "value_template": "{{ value_json.ac_input_power }}",
       "unique_id": "pecron_$DEVICE_KEY_ac_input",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/ac_output": {
       "name": "AC Output Power",
@@ -77,7 +121,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.ac_output_power }}",
       "unique_id": "pecron_$DEVICE_KEY_ac_output",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/ac_output_hz": {
       "name": "AC Output Frequency",
@@ -86,7 +139,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.ac_output_hz }}",
       "unique_id": "pecron_$DEVICE_KEY_ac_output_hz",
-      "entity_category": "diagnostic"
+      "entity_category": "diagnostic",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/ac_output_pf": {
       "name": "AC Power Factor",
@@ -94,7 +156,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.ac_output_pf }}",
       "unique_id": "pecron_$DEVICE_KEY_ac_output_pf",
-      "entity_category": "diagnostic"
+      "entity_category": "diagnostic",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/ac_output_voltage": {
       "name": "AC Output Voltage",
@@ -104,7 +175,16 @@
       "value_template": "{{ value_json.ac_output_voltage }}",
       "unique_id": "pecron_$DEVICE_KEY_ac_output_voltage",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/ac_voltage_setting": {
       "name": "AC Output Voltage Setting",
@@ -112,7 +192,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.ac_output_voltage_io }}",
       "unique_id": "pecron_$DEVICE_KEY_ac_voltage_setting",
-      "entity_category": "diagnostic"
+      "entity_category": "diagnostic",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/auto_off_timer": {
       "name": "No-Output Auto-Off Timer",
@@ -120,7 +209,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.noastime_io }}",
       "unique_id": "pecron_$DEVICE_KEY_auto_off_timer",
-      "entity_category": "diagnostic"
+      "entity_category": "diagnostic",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/battery": {
       "name": "Battery (SOC)",
@@ -129,7 +227,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.soc_percent }}",
       "unique_id": "pecron_$DEVICE_KEY_battery",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/battery_temp": {
       "name": "Battery Temperature",
@@ -139,7 +246,16 @@
       "value_template": "{{ value_json.battery_temp }}",
       "unique_id": "pecron_$DEVICE_KEY_battery_temp",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/charging_plate_temp": {
       "name": "Charging Plate Temperature",
@@ -149,7 +265,16 @@
       "value_template": "{{ value_json.charging_plate_temp }}",
       "unique_id": "pecron_$DEVICE_KEY_charging_plate_temp",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/current": {
       "name": "Current",
@@ -158,7 +283,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.current }}",
       "unique_id": "pecron_$DEVICE_KEY_current",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/dc_input": {
       "name": "DC Input Power",
@@ -168,7 +302,16 @@
       "value_template": "{{ value_json.dc_input_power }}",
       "unique_id": "pecron_$DEVICE_KEY_dc_input",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/dc_output": {
       "name": "DC Output Power",
@@ -177,7 +320,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.dc_output_power }}",
       "unique_id": "pecron_$DEVICE_KEY_dc_output",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/device_status": {
       "name": "Device Status",
@@ -185,7 +337,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.device_status_hm }}",
       "unique_id": "pecron_$DEVICE_KEY_device_status",
-      "entity_category": "diagnostic"
+      "entity_category": "diagnostic",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/host_battery": {
       "name": "Host Battery",
@@ -195,7 +356,16 @@
       "value_template": "{{ value_json.host_percent }}",
       "unique_id": "pecron_$DEVICE_KEY_host_battery",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/inverter_temp": {
       "name": "Inverter Temperature",
@@ -205,7 +375,16 @@
       "value_template": "{{ value_json.inverter_temp }}",
       "unique_id": "pecron_$DEVICE_KEY_inverter_temp",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/remaining_charging_time": {
       "name": "Remaining Charging Time",
@@ -213,14 +392,32 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.remain_charging_hm }}",
       "unique_id": "pecron_$DEVICE_KEY_remaining_charging_time",
-      "entity_category": "diagnostic"
+      "entity_category": "diagnostic",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/remaining_time": {
       "name": "Remaining Time",
       "icon": "mdi:timer-outline",
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.remain_hm }}",
-      "unique_id": "pecron_$DEVICE_KEY_remaining_time"
+      "unique_id": "pecron_$DEVICE_KEY_remaining_time",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/screen_brightness": {
       "name": "Screen Brightness",
@@ -228,7 +425,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.machine_screen_light_as }}",
       "unique_id": "pecron_$DEVICE_KEY_screen_brightness",
-      "entity_category": "diagnostic"
+      "entity_category": "diagnostic",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/standby_timeout": {
       "name": "Standby Timeout",
@@ -236,7 +442,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.device_standy_times_as }}",
       "unique_id": "pecron_$DEVICE_KEY_standby_timeout",
-      "entity_category": "diagnostic"
+      "entity_category": "diagnostic",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/temperature": {
       "name": "Temperature",
@@ -245,7 +460,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.temperature }}",
       "unique_id": "pecron_$DEVICE_KEY_temperature",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/total_energy": {
       "name": "Total PV Energy",
@@ -254,7 +478,16 @@
       "unit_of_measurement": "kWh",
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.total_energy }}",
-      "unique_id": "pecron_$DEVICE_KEY_total_energy"
+      "unique_id": "pecron_$DEVICE_KEY_total_energy",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/total_input": {
       "name": "Input Power",
@@ -263,7 +496,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.total_input_power }}",
       "unique_id": "pecron_$DEVICE_KEY_total_input",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/total_output": {
       "name": "Output Power",
@@ -272,7 +514,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.total_output_power }}",
       "unique_id": "pecron_$DEVICE_KEY_total_output",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/voltage": {
       "name": "Voltage",
@@ -281,7 +532,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.voltage }}",
       "unique_id": "pecron_$DEVICE_KEY_voltage",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "switch/ac": {
       "name": "AC Output",
@@ -293,7 +553,16 @@
       "payload_off": "OFF",
       "state_on": "ON",
       "state_off": "OFF",
-      "unique_id": "pecron_$DEVICE_KEY_ac"
+      "unique_id": "pecron_$DEVICE_KEY_ac",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "switch/auto_dim": {
       "name": "Auto-Dim on Idle",
@@ -306,17 +575,16 @@
       "payload_on": "ON",
       "payload_off": "OFF",
       "unique_id": "pecron_$DEVICE_KEY_auto_dim",
-      "entity_category": "config"
-    },
-    "switch/bypass": {
-      "name": "Bypass Mode",
-      "icon": "mdi:transfer",
-      "state_topic": "pecron/$DEVICE_KEY/state",
-      "value_template": "{{ value_json.bypass_enable }}",
-      "state_on": "ON",
-      "state_off": "OFF",
-      "unique_id": "pecron_$DEVICE_KEY_bypass",
-      "entity_category": "config"
+      "entity_category": "config",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "switch/dc": {
       "name": "DC Output",
@@ -328,7 +596,16 @@
       "payload_off": "OFF",
       "state_on": "ON",
       "state_off": "OFF",
-      "unique_id": "pecron_$DEVICE_KEY_dc"
+      "unique_id": "pecron_$DEVICE_KEY_dc",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "switch/eco_mode": {
       "name": "Eco Mode",
@@ -341,7 +618,16 @@
       "payload_on": "ON",
       "payload_off": "OFF",
       "unique_id": "pecron_$DEVICE_KEY_eco_mode",
-      "entity_category": "config"
+      "entity_category": "config",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "switch/touch_lock": {
       "name": "Touch Panel Lock",
@@ -354,7 +640,16 @@
       "payload_on": "ON",
       "payload_off": "OFF",
       "unique_id": "pecron_$DEVICE_KEY_touch_lock",
-      "entity_category": "config"
+      "entity_category": "config",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "switch/ups": {
       "name": "UPS Mode",
@@ -367,7 +662,16 @@
       "state_on": "ON",
       "state_off": "OFF",
       "unique_id": "pecron_$DEVICE_KEY_ups",
-      "entity_category": "config"
+      "entity_category": "config",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     }
   },
   "catalogs": {
@@ -403,7 +707,6 @@
       "sensor/voltage",
       "switch/ac",
       "switch/auto_dim",
-      "switch/bypass",
       "switch/dc",
       "switch/eco_mode",
       "switch/touch_lock",
@@ -434,13 +737,14 @@
       "sensor/voltage",
       "switch/ac",
       "switch/auto_dim",
-      "switch/bypass",
       "switch/dc",
       "switch/ups"
     ]
   },
   "stale": {
     "all_capabilities": [
+      "binary_sensor/bypass",
+      "binary_sensor/ups",
       "sensor/ac_charging_power",
       "sensor/ac_input_energy",
       "sensor/ac_output_energy",
@@ -481,9 +785,12 @@
       "sensor/pack_3_temp",
       "sensor/pack_3_voltage",
       "sensor/ups_charge_threshold",
-      "switch/beep"
+      "switch/beep",
+      "switch/bypass"
     ],
     "minimal": [
+      "binary_sensor/bypass",
+      "binary_sensor/ups",
       "select/ac_charging_power",
       "select/ups_charge_threshold",
       "sensor/ac_charging_power",
@@ -532,6 +839,7 @@
       "sensor/total_energy",
       "sensor/ups_charge_threshold",
       "switch/beep",
+      "switch/bypass",
       "switch/eco_mode",
       "switch/touch_lock"
     ]
@@ -545,7 +853,16 @@
       "value_template": "{{ value_json.dc5521_input_current }}",
       "unique_id": "pecron_$DEVICE_KEY_dc5521_input_current",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/dc5521_input_power": {
       "name": "DC5521 Input Power",
@@ -555,7 +872,16 @@
       "value_template": "{{ value_json.dc5521_input_power }}",
       "unique_id": "pecron_$DEVICE_KEY_dc5521_input_power",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/dc5521_input_voltage": {
       "name": "DC5521 Input Voltage",
@@ -565,7 +891,16 @@
       "value_template": "{{ value_json.dc5521_input_voltage }}",
       "unique_id": "pecron_$DEVICE_KEY_dc5521_input_voltage",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/gx16mf1_input_current": {
       "name": "Solar Port 1 Current",
@@ -574,7 +909,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.gx16mf1_input_current }}",
       "unique_id": "pecron_$DEVICE_KEY_gx16mf1_input_current",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/gx16mf1_input_power": {
       "name": "Solar Port 1 Power",
@@ -583,7 +927,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.gx16mf1_input_power }}",
       "unique_id": "pecron_$DEVICE_KEY_gx16mf1_input_power",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/gx16mf1_input_voltage": {
       "name": "Solar Port 1 Voltage",
@@ -592,7 +945,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.gx16mf1_input_voltage }}",
       "unique_id": "pecron_$DEVICE_KEY_gx16mf1_input_voltage",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/gx16mf2_input_current": {
       "name": "Solar Port 2 Current",
@@ -601,7 +963,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.gx16mf2_input_current }}",
       "unique_id": "pecron_$DEVICE_KEY_gx16mf2_input_current",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/gx16mf2_input_power": {
       "name": "Solar Port 2 Power",
@@ -610,7 +981,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.gx16mf2_input_power }}",
       "unique_id": "pecron_$DEVICE_KEY_gx16mf2_input_power",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/gx16mf2_input_voltage": {
       "name": "Solar Port 2 Voltage",
@@ -619,7 +999,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.gx16mf2_input_voltage }}",
       "unique_id": "pecron_$DEVICE_KEY_gx16mf2_input_voltage",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     }
   },
   "deferred_packs": {
@@ -631,7 +1020,16 @@
       "value_template": "{{ value_json.pack_0_battery }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_0_battery",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_0_current": {
       "name": "Pack 0 Current",
@@ -641,7 +1039,16 @@
       "value_template": "{{ value_json.pack_0_current }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_0_current",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_0_status": {
       "name": "Pack 0 Status",
@@ -649,7 +1056,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.pack_0_status }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_0_status",
-      "entity_category": "diagnostic"
+      "entity_category": "diagnostic",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_0_temp": {
       "name": "Pack 0 Temperature",
@@ -659,7 +1075,16 @@
       "value_template": "{{ value_json.pack_0_temp }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_0_temp",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_0_voltage": {
       "name": "Pack 0 Voltage",
@@ -669,7 +1094,16 @@
       "value_template": "{{ value_json.pack_0_voltage }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_0_voltage",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_1_battery": {
       "name": "Pack 1 Battery",
@@ -679,7 +1113,16 @@
       "value_template": "{{ value_json.pack_1_battery }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_1_battery",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_1_current": {
       "name": "Pack 1 Current",
@@ -689,7 +1132,16 @@
       "value_template": "{{ value_json.pack_1_current }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_1_current",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_1_status": {
       "name": "Pack 1 Status",
@@ -697,7 +1149,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.pack_1_status }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_1_status",
-      "entity_category": "diagnostic"
+      "entity_category": "diagnostic",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_1_temp": {
       "name": "Pack 1 Temperature",
@@ -707,7 +1168,16 @@
       "value_template": "{{ value_json.pack_1_temp }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_1_temp",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_1_voltage": {
       "name": "Pack 1 Voltage",
@@ -717,7 +1187,16 @@
       "value_template": "{{ value_json.pack_1_voltage }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_1_voltage",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_2_battery": {
       "name": "Pack 2 Battery",
@@ -727,7 +1206,16 @@
       "value_template": "{{ value_json.pack_2_battery }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_2_battery",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_2_current": {
       "name": "Pack 2 Current",
@@ -737,7 +1225,16 @@
       "value_template": "{{ value_json.pack_2_current }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_2_current",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_2_status": {
       "name": "Pack 2 Status",
@@ -745,7 +1242,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.pack_2_status }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_2_status",
-      "entity_category": "diagnostic"
+      "entity_category": "diagnostic",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_2_temp": {
       "name": "Pack 2 Temperature",
@@ -755,7 +1261,16 @@
       "value_template": "{{ value_json.pack_2_temp }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_2_temp",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_2_voltage": {
       "name": "Pack 2 Voltage",
@@ -765,7 +1280,16 @@
       "value_template": "{{ value_json.pack_2_voltage }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_2_voltage",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_3_battery": {
       "name": "Pack 3 Battery",
@@ -775,7 +1299,16 @@
       "value_template": "{{ value_json.pack_3_battery }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_3_battery",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_3_current": {
       "name": "Pack 3 Current",
@@ -785,7 +1318,16 @@
       "value_template": "{{ value_json.pack_3_current }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_3_current",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_3_status": {
       "name": "Pack 3 Status",
@@ -793,7 +1335,16 @@
       "state_topic": "pecron/$DEVICE_KEY/state",
       "value_template": "{{ value_json.pack_3_status }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_3_status",
-      "entity_category": "diagnostic"
+      "entity_category": "diagnostic",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_3_temp": {
       "name": "Pack 3 Temperature",
@@ -803,7 +1354,16 @@
       "value_template": "{{ value_json.pack_3_temp }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_3_temp",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     },
     "sensor/pack_3_voltage": {
       "name": "Pack 3 Voltage",
@@ -813,7 +1373,16 @@
       "value_template": "{{ value_json.pack_3_voltage }}",
       "unique_id": "pecron_$DEVICE_KEY_pack_3_voltage",
       "entity_category": "diagnostic",
-      "state_class": "measurement"
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "pecron/bridge/availability"
+        },
+        {
+          "topic": "pecron/$DEVICE_KEY/availability"
+        }
+      ],
+      "availability_mode": "all"
     }
   }
 }

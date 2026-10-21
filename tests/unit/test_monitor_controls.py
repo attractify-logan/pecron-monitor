@@ -537,3 +537,38 @@ def test_bool_tcp_write_uses_fresh_session_and_closes_it_afterwards():
     monitor._connect_local.assert_called_once_with(DEVICE_KEY)
     tcp.send_control.assert_called_once_with(38, False, "BOOL", verify=True)
     tcp.disconnect.assert_called_once_with()
+
+
+def test_tcp_control_waits_for_a_poll_session_on_the_same_device():
+    """HA commands run on paho's thread. A poll on the main thread that ended
+    mid-write closed the shared socket under it ('[Errno 9] Bad file
+    descriptor', seen on an E3800LFP on 2026-10-21). The control must wait for
+    the poll's local session to finish."""
+    import threading
+
+    monitor = make_monitor()
+    tcp = transport(connected=True)
+    monitor.local_transports[DEVICE_KEY] = tcp
+    monitor.mqtt_client = None
+    monitor._connect_local = MagicMock(return_value=True)
+    done = threading.Event()
+
+    with monitor._local_session_lock(DEVICE_KEY):
+        worker = threading.Thread(
+            target=lambda: (monitor.send_control(DEVICE_KEY, "ac_switch_hm", True), done.set())
+        )
+        worker.start()
+        assert not done.wait(0.3)
+        tcp.send_control.assert_not_called()
+
+    worker.join(5)
+    assert done.is_set()
+    tcp.send_control.assert_called_once()
+
+
+def test_local_session_lock_is_reentrant_for_rules_fired_during_a_poll():
+    monitor = make_monitor()
+    lock = monitor._local_session_lock(DEVICE_KEY)
+    with lock:
+        with monitor._local_session_lock(DEVICE_KEY):
+            pass

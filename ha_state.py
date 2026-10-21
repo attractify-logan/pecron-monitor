@@ -1,6 +1,7 @@
 """Home Assistant MQTT state formatting and publishing."""
 
 import json
+import time
 
 from constants import (
     SENSOR_FIELDS,
@@ -12,6 +13,7 @@ from constants import (
     WB_DISCHARGE_CURRENT_LABELS,
     WB_HEATING_MODE_LABELS,
     PACK_STATUS_LABELS,
+    ENUM_LABELS,
 )
 from helpers import _fmt_dhm, _get_kv_single, _truthy
 
@@ -27,8 +29,10 @@ class HomeAssistantStateMixin:
         will flap between valid values and 0/unknown. We therefore merge updates into a
         per-device cache and only overwrite fields when the source field is present.
         """
+        self._last_seen[device_key] = time.time()
         if not self._connected:
             return
+        self._set_device_online(device_key, True)
 
         cache = self._state_cache.setdefault(device_key, {})
 
@@ -202,9 +206,14 @@ class HomeAssistantStateMixin:
             if v is not None:
                 cache[field] = "ON" if _truthy(v) else "OFF"
 
+        # Raw indices: the select templates map these to options themselves.
+        for field in ("ac_charging_power_ios", "ups_start_charge_value_as"):
+            v = kv.get(field)
+            if v is not None:
+                cache[field] = v
+
+        # Read-only settings sensors: publish the label ("100%", "120V"), not the index.
         for field in (
-            "ac_charging_power_ios",
-            "ups_start_charge_value_as",
             "device_standy_times_as",
             "machine_screen_light_as",
             "ac_output_voltage_io",
@@ -213,7 +222,10 @@ class HomeAssistantStateMixin:
         ):
             v = kv.get(field)
             if v is not None:
-                cache[field] = v
+                try:
+                    cache[field] = ENUM_LABELS[field].get(int(float(v)), str(v))
+                except (TypeError, ValueError):
+                    cache[field] = str(v)
 
         # ---- WB12200 battery management (decode enum indices to friendly labels) ----
         _wb_enum_fields = {
@@ -360,6 +372,16 @@ class HomeAssistantStateMixin:
         # omits those keys and HA's template returns None (Unknown).
         packs = kv.get("charging_pack_data_jdb", [])
         if isinstance(packs, list):
+            # E1500LFP and E3800LFP list add_bat_status_hm in their TSL but never
+            # send it; derive the Expansion Pack sensor from the slots instead.
+            if packs and kv.get("add_bat_status_hm") is None:
+                attached = False
+                for pack in packs:
+                    try:
+                        attached |= int(float(pack.get("charging_pack_status", 4))) != 4
+                    except (AttributeError, TypeError, ValueError):
+                        pass
+                cache["add_bat_status_hm"] = "ON" if attached else "OFF"
             for i, pack in enumerate(packs[:4]):
                 if not isinstance(pack, dict):
                     continue

@@ -6,6 +6,9 @@ import logging
 
 log = logging.getLogger("pecron")
 
+# Retained "online"/"offline" for the bridge itself; "offline" is also its LWT.
+BRIDGE_AVAILABILITY_TOPIC = "pecron/bridge/availability"
+
 # Home Assistant device view categorization for MQTT discovery (issue #34).
 # Entities in this map get an `entity_category` hint on discovery so HA
 # groups them under collapsible Configuration / Diagnostic sections instead
@@ -99,6 +102,18 @@ def entity_category_for(key: str):
     return None
 
 
+def _select_template(field: str, expression: str) -> str:
+    """Value template for a select backed by a raw enum field.
+
+    Renders nothing when the field is missing or null; HA's MQTT select ignores
+    an empty render and keeps its current option, where '%' or the whole state
+    JSON would be logged as an invalid option."""
+    return (
+        f"{{% set value = value_json.{field} | default(none) %}}"
+        f"{{% if value is not none %}}{{{{ {expression} }}}}{{% endif %}}"
+    )
+
+
 class HomeAssistantDiscoveryMixin:
     """Publishes Home Assistant MQTT auto-discovery configuration."""
 
@@ -108,7 +123,12 @@ class HomeAssistantDiscoveryMixin:
         # Issue #49: reset before discovery so on_connect's subscribe loop
         # (which runs right after this) sees only currently-registered topics.
         self._command_topics = []
-        self._clear_current_discovery = bool(self.clear_discovery_on_startup)
+        # Clear-and-republish only on the first connect of this process. On a
+        # broker reconnect it removed and re-created every entity in HA.
+        self._clear_current_discovery = bool(self.clear_discovery_on_startup) and (
+            not self._discovery_cleared
+        )
+        self._discovery_cleared = True
         for device in self.devices:
             dk = device["device_key"]
             name = device["device_name"]
@@ -350,24 +370,45 @@ class HomeAssistantDiscoveryMixin:
                 },
             )
 
-            self._pub_config(
-                "switch",
-                dk,
-                "ups",
-                {
-                    "name": "UPS Mode",
-                    "icon": "mdi:shield-battery",
-                    "command_topic": f"pecron/{dk}/ups/set",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.ups_mode }}",
-                    "payload_on": "ON",
-                    "payload_off": "OFF",
-                    "state_on": "ON",
-                    "state_off": "OFF",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_ups",
-                },
-            )
+            # UPS mode is read-only (access=R) in the E1500LFP and E3800LFP TSL
+            # and send_control refuses to write it; show a switch only when the
+            # TSL says it is writable.
+            ups_info = (device.get("controls") or {}).get("ups_status_hm") or {}
+            if "W" in str(ups_info.get("access", "RW")).upper():
+                self._pub_config(
+                    "switch",
+                    dk,
+                    "ups",
+                    {
+                        "name": "UPS Mode",
+                        "icon": "mdi:shield-battery",
+                        "command_topic": f"pecron/{dk}/ups/set",
+                        "state_topic": f"pecron/{dk}/state",
+                        "value_template": "{{ value_json.ups_mode }}",
+                        "payload_on": "ON",
+                        "payload_off": "OFF",
+                        "state_on": "ON",
+                        "state_off": "OFF",
+                        "device": dev_info,
+                        "unique_id": f"pecron_{dk}_ups",
+                    },
+                )
+            else:
+                self._pub_config(
+                    "binary_sensor",
+                    dk,
+                    "ups",
+                    {
+                        "name": "UPS Mode",
+                        "icon": "mdi:shield-battery",
+                        "state_topic": f"pecron/{dk}/state",
+                        "value_template": "{{ value_json.ups_mode }}",
+                        "payload_on": "ON",
+                        "payload_off": "OFF",
+                        "device": dev_info,
+                        "unique_id": f"pecron_{dk}_ups",
+                    },
+                )
 
             # === E3800-specific automation controls ===
             # These only appear if the device has these capabilities
@@ -426,7 +467,9 @@ class HomeAssistantDiscoveryMixin:
                             "name": "AC Charging Power Setting",
                             "icon": "mdi:flash",
                             "state_topic": f"pecron/{dk}/state",
-                            "value_template": "{{ (value_json.ac_charging_power_ios | int * 10) ~ '%' if value_json.ac_charging_power_ios is not none else none }}",
+                            "value_template": _select_template(
+                                "ac_charging_power_ios", "(value | int * 10) ~ '%'"
+                            ),
                             "options": [
                                 "0%",
                                 "10%",
@@ -455,9 +498,10 @@ class HomeAssistantDiscoveryMixin:
                         {
                             "name": "UPS Charge Threshold",
                             "icon": "mdi:battery-charging",
-                            "unit_of_measurement": "%",
                             "state_topic": f"pecron/{dk}/state",
-                            "value_template": "{{ value_json.ups_start_charge_value_as ~ '%' if value_json.ups_start_charge_value_as is not none else none }}",
+                            "value_template": _select_template(
+                                "ups_start_charge_value_as", "(value | int) ~ '%'"
+                            ),
                             "options": ["30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"],
                             "command_topic": f"pecron/{dk}/ups_charge_threshold/set",
                             "device": dev_info,
@@ -481,24 +525,26 @@ class HomeAssistantDiscoveryMixin:
                         },
                     )
 
-                # Bypass mode (bypass_enable isn't a standard TSL code on any model
-                # I've seen; leaving ungated for now, will gate if someone identifies
-                # the underlying TSL resource)
-                self._pub_config(
-                    "switch",
-                    dk,
-                    "bypass",
-                    {
-                        "name": "Bypass Mode",
-                        "icon": "mdi:transfer",
-                        "state_topic": f"pecron/{dk}/state",
-                        "value_template": "{{ value_json.bypass_enable }}",
-                        "state_on": "ON",
-                        "state_off": "OFF",
-                        "device": dev_info,
-                        "unique_id": f"pecron_{dk}_bypass",
-                    },
-                )
+                # Bypass mode is read-only (there is no command handler for it),
+                # so it is a binary_sensor; HA rejects a switch without a
+                # command_topic. Neither the E1500LFP nor the E3800LFP TSL has
+                # bypass_enable, so gate it.
+                if self._has(device, "bypass_enable"):
+                    self._pub_config(
+                        "binary_sensor",
+                        dk,
+                        "bypass",
+                        {
+                            "name": "Bypass Mode",
+                            "icon": "mdi:transfer",
+                            "state_topic": f"pecron/{dk}/state",
+                            "value_template": "{{ value_json.bypass_enable }}",
+                            "payload_on": "ON",
+                            "payload_off": "OFF",
+                            "device": dev_info,
+                            "unique_id": f"pecron_{dk}_bypass",
+                        },
+                    )
 
             if is_pps:
                 # AC output power sensor
@@ -1022,13 +1068,24 @@ class HomeAssistantDiscoveryMixin:
         # Diagnostic sections. Applied here so every call site benefits without
         # 50 per-call-site edits.
         category = entity_category_for(key)
-        if component == "sensor" and category == "config":
-            # Home Assistant rejects config-category sensors. Keep these
+        if component in ("sensor", "binary_sensor") and category == "config":
+            # Home Assistant rejects config-category sensors and binary
+            # sensors (read-only bypass and UPS mode). Keep these
             # rarely-used settings out of the main view by downgrading them to
             # diagnostic rather than publishing invalid discovery payloads.
             category = "diagnostic"
         if category and "entity_category" not in config:
             config = {**config, "entity_category": category}
+        # Unavailable when the bridge is gone (LWT) or the device has not
+        # reported for stale_after seconds, instead of showing frozen values.
+        config = {
+            **config,
+            "availability": [
+                {"topic": BRIDGE_AVAILABILITY_TOPIC},
+                {"topic": f"pecron/{dk}/availability"},
+            ],
+            "availability_mode": "all",
+        }
         # Issue #78: tag instantaneous measurement sensors with
         # state_class=measurement so HA records long-term statistics for them.
         # Applied centrally so every numeric sensor benefits without per-call-site
@@ -1114,7 +1171,7 @@ class HomeAssistantDiscoveryMixin:
                 for f in ["battery", "voltage", "current", "temp", "status"]
             ],
             "switch": ["ac", "dc", "ups", "eco_mode", "touch_lock", "bypass", "auto_dim", "beep"],
-            "binary_sensor": ["expansion_pack"],
+            "binary_sensor": ["expansion_pack", "bypass", "ups"],
             "select": ["ac_charging_power", "ups_charge_threshold"],
         }
         for component, keys in ALL_ENTITY_KEYS.items():
