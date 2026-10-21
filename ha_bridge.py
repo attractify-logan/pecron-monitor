@@ -4,6 +4,7 @@ Home Assistant MQTT bridge for pecron-monitor.
 Publishes Home Assistant MQTT auto-discovery config and state updates.
 """
 
+import json
 import logging
 import time
 
@@ -14,7 +15,7 @@ except ImportError:
 
 from helpers import _truthy
 from energy_state import DEFAULT_MAX_GAP_SECONDS, EnergyIntegrator
-from ha_discovery import HomeAssistantDiscoveryMixin
+from ha_discovery import BRIDGE_AVAILABILITY_TOPIC, HomeAssistantDiscoveryMixin
 from ha_state import HomeAssistantStateMixin
 
 log = logging.getLogger("pecron")
@@ -40,6 +41,15 @@ class HomeAssistantBridge(HomeAssistantDiscoveryMixin, HomeAssistantStateMixin):
         # service restart instead of requiring a manual MQTT integration reload.
         self.clear_discovery_on_startup = ha_config.get("clear_discovery_on_startup", True)
         self._clear_current_discovery = False
+        self._discovery_cleared = False
+
+        # Availability: a device goes "offline" in HA after stale_after seconds
+        # with no reading from any source, so entities show unavailable rather
+        # than frozen values. Default: five polls at the 120 s recommended interval.
+        self.stale_after = float(ha_config.get("stale_after", 600))
+        self._started_at = None
+        self._last_seen: dict = {}  # device_key -> time of last publish_state
+        self._device_online: dict = {}  # device_key -> last published availability
         # Derived kWh counters are strictly opt-in. Their persistence and sampling
         # state are not touched when disabled, preserving the legacy bridge path.
         self.energy_sensors = bool(_truthy(ha_config.get("energy_sensors", False)))
@@ -79,7 +89,12 @@ class HomeAssistantBridge(HomeAssistantDiscoveryMixin, HomeAssistantStateMixin):
         """Initial connection attempt. If it fails the bridge is not fatal;
         the monitor's main loop will call try_reconnect() periodically."""
         self._last_retry_at = time.time()
+        self._mark_started()
         self._connect_attempt()
+
+    def _mark_started(self):
+        if self._started_at is None:
+            self._started_at = time.time()
 
     def _connect_attempt(self):
         host = self.ha_config.get("mqtt_host", "localhost")
@@ -102,6 +117,7 @@ class HomeAssistantBridge(HomeAssistantDiscoveryMixin, HomeAssistantStateMixin):
         )
         if user:
             client.username_pw_set(user, pw)
+        client.will_set(BRIDGE_AVAILABILITY_TOPIC, "offline", qos=1, retain=True)
 
         def on_connect(client, ud, flags, rc, props=None):
             if rc == mqtt.CONNACK_ACCEPTED:
@@ -116,6 +132,18 @@ class HomeAssistantBridge(HomeAssistantDiscoveryMixin, HomeAssistantStateMixin):
                 # eco_mode, touch_lock, auto_light_flag_as, etc.
                 for topic in self._command_topics:
                     client.subscribe(topic, qos=1)
+                client.publish(BRIDGE_AVAILABILITY_TOPIC, "online", qos=1, retain=True)
+                for dk, online in self._device_online.items():
+                    client.publish(
+                        f"pecron/{dk}/availability",
+                        "online" if online else "offline",
+                        qos=1,
+                        retain=True,
+                    )
+                # Read back our retained state once so the first payload after a
+                # restart carries every field, not just the ones in the first packet.
+                for device in self.devices:
+                    client.subscribe(f"pecron/{device['device_key']}/state", qos=1)
 
         def on_disconnect(client, ud, disconnect_flags, rc, props=None):
             # paho auto-reconnect handles this after a successful initial connect,
@@ -129,6 +157,9 @@ class HomeAssistantBridge(HomeAssistantDiscoveryMixin, HomeAssistantStateMixin):
             # thread, so never let one escape.
             try:
                 parts = msg.topic.split("/")
+                if len(parts) == 3 and parts[2] == "state":
+                    self._on_state_message(msg)
+                    return
                 if len(parts) == 4 and parts[3] == "set":
                     if getattr(msg, "retain", False):
                         # Home Assistant never retains commands. A retained one
@@ -191,7 +222,59 @@ class HomeAssistantBridge(HomeAssistantDiscoveryMixin, HomeAssistantStateMixin):
         if hasattr(self, "command_callback"):
             self.command_callback(device_key, control, payload)
 
+    def _on_state_message(self, msg):
+        """Seed the state cache from the retained state of the previous run.
+        Only the retained copy counts; live echoes of our own publishes are ignored."""
+        if not getattr(msg, "retain", False):
+            return
+        device_key = msg.topic.split("/")[1]
+        if self.client is not None:
+            self.client.unsubscribe(msg.topic)
+        try:
+            retained = json.loads(msg.payload)
+        except (TypeError, ValueError):
+            return
+        if not isinstance(retained, dict):
+            return
+        cache = self._state_cache.setdefault(device_key, {})
+        for key, value in retained.items():
+            cache.setdefault(key, value)
+        log.debug("Seeded HA state for %s with %d retained fields", device_key, len(retained))
+
+    def _set_device_online(self, device_key: str, online: bool):
+        if self._device_online.get(device_key) == online:
+            return
+        self._device_online[device_key] = online
+        if self._connected and self.client is not None:
+            self.client.publish(
+                f"pecron/{device_key}/availability",
+                "online" if online else "offline",
+                qos=1,
+                retain=True,
+            )
+        if not online:
+            log.warning(
+                "No reading from %s for %.0fs; marking it unavailable in Home Assistant",
+                device_key,
+                self.stale_after,
+            )
+
+    def check_availability(self):
+        """Mark devices unavailable after stale_after seconds without a reading.
+        Called from the monitor's main loop."""
+        now = time.time()
+        for device in self.devices:
+            dk = device["device_key"]
+            last = self._last_seen.get(dk, self._started_at)
+            if last is not None and now - last > self.stale_after:
+                self._set_device_online(dk, False)
+
     def disconnect(self):
         if self.client:
+            try:
+                info = self.client.publish(BRIDGE_AVAILABILITY_TOPIC, "offline", qos=1, retain=True)
+                info.wait_for_publish(timeout=2)
+            except Exception:
+                pass
             self.client.loop_stop()
             self.client.disconnect()

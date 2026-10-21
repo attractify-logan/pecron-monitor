@@ -25,6 +25,9 @@ class RecordingClient:
     def username_pw_set(self, username, password):
         self.events.append(("username_pw_set", username, password))
 
+    def will_set(self, topic, payload, qos, retain):
+        self.events.append(("will_set", topic, payload, qos, retain))
+
     def reconnect_delay_set(self, *, min_delay, max_delay):
         self.events.append(("reconnect_delay_set", min_delay, max_delay))
 
@@ -45,11 +48,21 @@ class RecordingClient:
     def subscribe(self, topic, qos):
         self.events.append(("subscribe", topic, qos))
 
+    def unsubscribe(self, topic):
+        self.events.append(("unsubscribe", topic))
+
+    def publish(self, topic, payload, qos, retain):
+        self.events.append(("publish", topic, payload, qos, retain))
+        return SimpleNamespace(
+            wait_for_publish=lambda timeout: self.events.append(("wait_for_publish", timeout))
+        )
+
 
 class FakeMessage:
     def __init__(self, topic, payload):
         self.topic = topic
         self.payload = payload
+        self.retain = False
 
 
 def _device():
@@ -144,7 +157,7 @@ def test_connect_records_attempt_timestamp_before_delegating(monkeypatch):
     assert bridge.connect() is None
 
     assert bridge._last_retry_at == 123.5
-    assert events == ["time", "attempt"]
+    assert events == ["time", "time", "attempt"]
     bridge._connect_attempt.assert_called_once_with()
 
 
@@ -175,6 +188,7 @@ def test_connect_attempt_configures_paho_credentials_callbacks_and_loop_in_exact
             },
         ),
         ("username_pw_set", "ha-user", "ha-password"),
+        ("will_set", "pecron/bridge/availability", "offline", 1, True),
         ("callback", "on_connect"),
         ("callback", "on_disconnect"),
         ("callback", "on_message"),
@@ -273,6 +287,8 @@ def test_accepted_connect_callback_publishes_then_subscribes_discovered_commands
         ("publish_discovery",),
         ("subscribe", "pecron/DEV1/ac/set", 1),
         ("subscribe", "pecron/DEV1/eco_mode/set", 1),
+        ("publish", "pecron/bridge/availability", "online", 1, True),
+        ("subscribe", "pecron/DEV1/state", 1),
     ]
 
 
@@ -409,7 +425,12 @@ def test_disconnect_stops_loop_then_disconnects_without_replacing_client():
 
     assert bridge.disconnect() is None
 
-    assert events == [("loop_stop",), ("disconnect",)]
+    assert events == [
+        ("publish", "pecron/bridge/availability", "offline", 1, True),
+        ("wait_for_publish", 2),
+        ("loop_stop",),
+        ("disconnect",),
+    ]
     assert bridge.client is client
     assert bridge._connected is True
 

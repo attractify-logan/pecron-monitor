@@ -259,6 +259,9 @@ def test_recovery_mqtt_reconnect_and_ha_retry_precede_next_poll(make_config):
         def try_reconnect(self):
             events.append("ha_retry")
 
+        def check_availability(self):
+            events.append("ha_availability")
+
         def disconnect(self):
             events.append("ha_disconnect")
 
@@ -291,6 +294,7 @@ def test_recovery_mqtt_reconnect_and_ha_retry_precede_next_poll(make_config):
         "cloud_recovery",
         "mqtt_recovery",
         "ha_retry",
+        "ha_availability",
         "request_status",
         "ha_disconnect",
     ]
@@ -310,6 +314,9 @@ def test_loop_exit_always_cleans_up_mqtt_and_ha(make_config, error, raises):
     class Bridge:
         def try_reconnect(self):
             events.append("ha_retry")
+
+        def check_availability(self):
+            events.append("ha_availability")
 
         def disconnect(self):
             events.append("ha_disconnect")
@@ -331,6 +338,7 @@ def test_loop_exit_always_cleans_up_mqtt_and_ha(make_config, error, raises):
 
     assert events == [
         "ha_retry",
+        "ha_availability",
         "mqtt_loop_stop",
         "mqtt_disconnect",
         "ha_disconnect",
