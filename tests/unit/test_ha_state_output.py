@@ -101,8 +101,8 @@ def _full_telemetry():
                 "charging_pack_temp": 99,
             },
             {
-                "charging_pack_status": 88,
-                "charging_pack_battery": 0,
+                "charging_pack_status": 0,
+                "charging_pack_battery": 88,
                 "charging_pack_voltage": 50,
                 "charging_pack_current": 0,
                 "charging_pack_temp": 31,
@@ -177,7 +177,7 @@ def _expected_full_state():
         "pack_1_voltage": None,
         "pack_1_current": None,
         "pack_1_temp": None,
-        "pack_2_status": "88",
+        "pack_2_status": "No Charge",
         "pack_2_battery": 88,
         "pack_2_voltage": 50.0,
         "pack_2_current": 0.0,
@@ -212,6 +212,10 @@ def test_publish_state_emits_exact_comprehensive_payload_and_defers_port_discove
         f"homeassistant/sensor/pecron_DEV1/{port}_input_{measurement}/config"
         for port in ("dc5521", "gx16mf1", "gx16mf2")
         for measurement in ("voltage", "current", "power")
+    ] + [
+        f"homeassistant/sensor/pecron_DEV1/pack_{slot}_{field}/config"
+        for slot in (0, 2)
+        for field in ("battery", "voltage", "current", "temp", "status")
     ]
     assert all(published.kwargs == {"qos": 1, "retain": True} for published in config_calls)
     assert bridge._deferred_ports_published == {
@@ -219,6 +223,7 @@ def test_publish_state_emits_exact_comprehensive_payload_and_defers_port_discove
         ("DEV1", "gx16mf1"),
         ("DEV1", "gx16mf2"),
     }
+    assert bridge._deferred_packs_published == {("DEV1", 0), ("DEV1", 2)}
 
     bridge.client.reset_mock()
     partial = {

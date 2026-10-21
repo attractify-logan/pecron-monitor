@@ -235,18 +235,10 @@ class MonitorStatusMixin:
                 except (ValueError, TypeError):
                     pack_status_val = 4
                 if pack_status_val != 4:
-                    # Fallback: some devices report battery % in charging_pack_status instead
                     try:
                         pack_battery = int(float(pack.get("charging_pack_battery", 0)))
                     except (ValueError, TypeError):
                         pack_battery = 0
-                    if pack_battery == 0 and 5 <= pack_status_val <= 100:
-                        pack_battery = pack_status_val
-                        log.debug(
-                            "Using charging_pack_status (%d%%) as battery for pack %d",
-                            pack_status_val,
-                            i,
-                        )
                     print(
                         f"Pack {i}:        {pack_battery if pack_battery > 0 else '?'}% "
                         f"{float(pack.get('charging_pack_voltage', 0)):.1f}V"

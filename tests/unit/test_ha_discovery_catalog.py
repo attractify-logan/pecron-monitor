@@ -258,3 +258,38 @@ def test_dc_input_ports_are_omitted_until_each_port_is_registered_once():
     for port in ("dc5521", "gx16mf1", "gx16mf2"):
         bridge._ensure_port_discovery(device_key, port)
     bridge.client.publish.assert_not_called()
+
+
+DEFERRED_PACK_REFS = {
+    f"sensor/pack_{slot}_{field}"
+    for slot in range(4)
+    for field in ("battery", "voltage", "current", "temp", "status")
+}
+
+
+def test_expansion_packs_are_omitted_until_each_slot_is_registered_once():
+    _, device_key, model, controls, _ = CASES[0]
+    bridge = _bridge(_device(device_key, model, controls))
+    bridge._publish_discovery()
+    initial_configs, _ = _config_publishes(bridge)
+    assert set(_ref(topic, device_key) for topic in initial_configs).isdisjoint(DEFERRED_PACK_REFS)
+
+    bridge.client.reset_mock()
+    for slot in range(4):
+        bridge._ensure_pack_discovery(device_key, slot)
+
+    configs, empty_topics = _config_publishes(bridge)
+    assert empty_topics == []
+    _assert_golden_configs(
+        configs,
+        DEFERRED_PACK_REFS,
+        device_key,
+        model,
+        CATALOG["deferred_packs"],
+    )
+    assert bridge._deferred_packs_published == {(device_key, slot) for slot in range(4)}
+
+    bridge.client.reset_mock()
+    for slot in range(4):
+        bridge._ensure_pack_discovery(device_key, slot)
+    bridge.client.publish.assert_not_called()

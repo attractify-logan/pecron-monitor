@@ -888,87 +888,18 @@ class HomeAssistantDiscoveryMixin:
                     },
                 )
 
-            # Per-pack sensors (charging_pack_data_jdb) — packs 0-3 (PPS only)
-            if is_pps:
-                for pack_num in range(4):
-                    # Pack battery percentage
-                    self._pub_config(
-                        "sensor",
-                        dk,
-                        f"pack_{pack_num}_battery",
-                        {
-                            "name": f"Pack {pack_num} Battery",
-                            "device_class": "battery",
-                            "unit_of_measurement": "%",
-                            "state_topic": f"pecron/{dk}/state",
-                            "value_template": f"{{{{ value_json.pack_{pack_num}_battery }}}}",
-                            "device": dev_info,
-                            "unique_id": f"pecron_{dk}_pack_{pack_num}_battery",
-                        },
-                    )
-
-                    # Pack voltage
-                    self._pub_config(
-                        "sensor",
-                        dk,
-                        f"pack_{pack_num}_voltage",
-                        {
-                            "name": f"Pack {pack_num} Voltage",
-                            "device_class": "voltage",
-                            "unit_of_measurement": "V",
-                            "state_topic": f"pecron/{dk}/state",
-                            "value_template": f"{{{{ value_json.pack_{pack_num}_voltage }}}}",
-                            "device": dev_info,
-                            "unique_id": f"pecron_{dk}_pack_{pack_num}_voltage",
-                        },
-                    )
-
-                    # Pack current
-                    self._pub_config(
-                        "sensor",
-                        dk,
-                        f"pack_{pack_num}_current",
-                        {
-                            "name": f"Pack {pack_num} Current",
-                            "device_class": "current",
-                            "unit_of_measurement": "A",
-                            "state_topic": f"pecron/{dk}/state",
-                            "value_template": f"{{{{ value_json.pack_{pack_num}_current }}}}",
-                            "device": dev_info,
-                            "unique_id": f"pecron_{dk}_pack_{pack_num}_current",
-                        },
-                    )
-
-                    # Pack temperature
-                    self._pub_config(
-                        "sensor",
-                        dk,
-                        f"pack_{pack_num}_temp",
-                        {
-                            "name": f"Pack {pack_num} Temperature",
-                            "device_class": "temperature",
-                            "unit_of_measurement": "°C",
-                            "state_topic": f"pecron/{dk}/state",
-                            "value_template": f"{{{{ value_json.pack_{pack_num}_temp }}}}",
-                            "device": dev_info,
-                            "unique_id": f"pecron_{dk}_pack_{pack_num}_temp",
-                        },
-                    )
-
-                    # Pack status
-                    self._pub_config(
-                        "sensor",
-                        dk,
-                        f"pack_{pack_num}_status",
-                        {
-                            "name": f"Pack {pack_num} Status",
-                            "icon": "mdi:battery-sync",
-                            "state_topic": f"pecron/{dk}/state",
-                            "value_template": f"{{{{ value_json.pack_{pack_num}_status }}}}",
-                            "device": dev_info,
-                            "unique_id": f"pecron_{dk}_pack_{pack_num}_status",
-                        },
-                    )
+            # Per-pack sensors (pack_0..3_*) and per-port DC-input sensors are
+            # deferred until the device first reports them (_ensure_pack_discovery,
+            # _ensure_port_discovery). Re-register the ones already seen so a broker
+            # reconnect doesn't let the stale sweep below blank them.
+            for seen_dk, port in sorted(self._deferred_ports_published):
+                if seen_dk == dk:
+                    self._deferred_ports_published.discard((seen_dk, port))
+                    self._ensure_port_discovery(dk, port)
+            for seen_dk, slot in sorted(self._deferred_packs_published):
+                if seen_dk == dk:
+                    self._deferred_packs_published.discard((seen_dk, slot))
+                    self._ensure_pack_discovery(dk, slot)
 
             # Clear stale entities from previous versions that no longer apply to this model
             self._clear_stale_entities(dk)
@@ -1045,6 +976,46 @@ class HomeAssistantDiscoveryMixin:
             )
         self._deferred_ports_published.add((dk, port))
         log.info("Registered HA discovery for '%s' port on %s (first observation)", base_label, dk)
+
+    # (key suffix, display suffix, device_class, unit) per expansion-pack sensor.
+    _PACK_SENSORS = (
+        ("battery", "Battery", "battery", "%"),
+        ("voltage", "Voltage", "voltage", "V"),
+        ("current", "Current", "current", "A"),
+        ("temp", "Temperature", "temperature", "°C"),
+        ("status", "Status", None, None),
+    )
+
+    def _ensure_pack_discovery(self, dk: str, slot: int):
+        """Publish discovery for an expansion-pack slot the first time it reports
+        a pack (status other than 4, No Connection). Every PPS reports four slots
+        whether or not packs are attached, so publishing them up front left 20
+        Unknown entities per device."""
+        if (dk, slot) in self._deferred_packs_published:
+            return
+        dev_info = self._device_dev_info.get(dk)
+        if dev_info is None:
+            return
+
+        for suffix, display_suffix, dev_class, unit in self._PACK_SENSORS:
+            key = f"pack_{slot}_{suffix}"
+            config = {"name": f"Pack {slot} {display_suffix}"}
+            if dev_class:
+                config["device_class"] = dev_class
+                config["unit_of_measurement"] = unit
+            else:
+                config["icon"] = "mdi:battery-sync"
+            config.update(
+                {
+                    "state_topic": f"pecron/{dk}/state",
+                    "value_template": f"{{{{ value_json.{key} }}}}",
+                    "device": dev_info,
+                    "unique_id": f"pecron_{dk}_{key}",
+                }
+            )
+            self._pub_config("sensor", dk, key, config)
+        self._deferred_packs_published.add((dk, slot))
+        log.info("Registered HA discovery for expansion pack slot %d on %s", slot, dk)
 
     def _pub_config(self, component: str, dk: str, key: str, config: dict):
         # Issue #34: collapse non-essential entities under HA's Configuration /
