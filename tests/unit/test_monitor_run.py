@@ -167,6 +167,34 @@ def test_warmup_is_enabled_and_disabled_once_and_cycle_delay_uses_modulo(make_co
     monitor.mqtt_client.disconnect.assert_called_once_with()
 
 
+def test_cloud_mqtt_recovering_after_offline_start_does_not_crash_warmup_check(make_config):
+    """Starting with cloud down skips warm-up; recovery later must not reach the elapsed check."""
+    monitor = make_monitor(make_config, poll_interval=60, warmup_seconds=10)
+    monitor.mqtt_client = None
+    recovered_client = MagicMock()
+    monitor._try_cloud_recovery.side_effect = lambda: setattr(
+        monitor, "mqtt_client", recovered_client
+    )
+    requests = 0
+
+    def request(_poll_interval):
+        nonlocal requests
+        requests += 1
+        if requests == 3:
+            monitor.stop()
+        return 0.0
+
+    monitor._request_status_with_local_retries.side_effect = request
+
+    with patch("monitor_cloud.time.sleep"):
+        monitor.run(force_offline=True)
+
+    # Cycle 1 recovers cloud MQTT; cycle 2's warm-up check then sees a live client.
+    assert requests == 3
+    monitor._enable_high_freq_reporting.assert_not_called()
+    monitor._disable_high_freq_reporting.assert_not_called()
+
+
 def test_token_refresh_preserves_force_offline_and_reconnects_before_poll(make_config):
     monitor = make_monitor(make_config, warmup_seconds=0)
     transport = MagicMock()

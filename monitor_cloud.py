@@ -429,6 +429,8 @@ class MonitorCloudMixin:
         # After warm-up, disable high-freq to avoid burning cloud quota (error code 4026).
         # Only useful when cloud MQTT is connected — skip in offline/local-only mode.
         high_freq_warmup_seconds = self.config.get("high_freq_warmup_seconds", 60)
+        # Stays None when cloud MQTT is down at startup and only recovers later.
+        warmup_start = None
         if self.mqtt_client and high_freq_warmup_seconds > 0:
             log.info(
                 "Enabling high-freq reporting for %ds warm-up period...", high_freq_warmup_seconds
@@ -450,7 +452,7 @@ class MonitorCloudMixin:
                     cycle_delay = 0.0
                 time.sleep(cycle_delay)
                 # Check if warm-up period has ended — disable high-freq to save cloud quota
-                if self.mqtt_client and high_freq_warmup_seconds > 0:
+                if warmup_start is not None and self.mqtt_client and high_freq_warmup_seconds > 0:
                     elapsed = time.time() - warmup_start
                     if elapsed >= high_freq_warmup_seconds:
                         log.info(

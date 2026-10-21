@@ -276,6 +276,28 @@ def test_accepted_connect_callback_publishes_then_subscribes_discovered_commands
     ]
 
 
+def test_connect_callback_firing_inside_connect_publishes_through_new_client(monkeypatch):
+    """paho can deliver CONNACK before loop_start() returns; discovery needs self.client."""
+    events = []
+    client = RecordingClient(events)
+    _install_mqtt(monkeypatch, client, events)
+    bridge = _bridge()
+    seen_clients = []
+    bridge._publish_discovery = MagicMock(side_effect=lambda: seen_clients.append(bridge.client))
+
+    def connect_and_ack(host, port):
+        events.append(("connect", host, port))
+        client.on_connect(client, None, {}, 0)
+
+    client.connect = connect_and_ack
+
+    bridge._connect_attempt()
+
+    assert seen_clients == [client]
+    assert bridge.client is client
+    assert bridge._connected is True
+
+
 def test_rejected_connect_callback_does_not_publish_or_subscribe(monkeypatch):
     bridge, client, events = _configured_client(monkeypatch)
     bridge._publish_discovery = MagicMock()

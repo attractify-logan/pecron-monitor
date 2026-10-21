@@ -149,9 +149,11 @@ class HomeAssistantBridge(HomeAssistantDiscoveryMixin, HomeAssistantStateMixin):
         client.on_message = on_message
         client.reconnect_delay_set(min_delay=1, max_delay=self._retry_interval)
         try:
+            # Assign before connecting: on_connect publishes discovery through
+            # self.client and can run before loop_start() returns.
+            self.client = client
             client.connect(host, port)
             client.loop_start()
-            self.client = client
         except (ConnectionRefusedError, OSError) as e:
             log.error(
                 "Cannot connect to MQTT broker at %s:%d (%s). Will retry every %ds.",
