@@ -1068,8 +1068,9 @@ class HomeAssistantDiscoveryMixin:
         # Diagnostic sections. Applied here so every call site benefits without
         # 50 per-call-site edits.
         category = entity_category_for(key)
-        if component == "sensor" and category == "config":
-            # Home Assistant rejects config-category sensors. Keep these
+        if component in ("sensor", "binary_sensor") and category == "config":
+            # Home Assistant rejects config-category sensors and binary
+            # sensors (read-only bypass and UPS mode). Keep these
             # rarely-used settings out of the main view by downgrading them to
             # diagnostic rather than publishing invalid discovery payloads.
             category = "diagnostic"

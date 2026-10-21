@@ -299,3 +299,21 @@ def test_read_only_ups_mode_is_a_binary_sensor():
     b.client.reset_mock()
     b._publish_discovery()
     assert "command_topic" in _configs(b)["homeassistant/switch/pecron_DK/ups/config"]
+
+
+def test_only_controls_carry_the_config_entity_category():
+    """HA refuses to add a sensor or binary_sensor whose entity_category is
+    'config' ("cannot be added as the entity category is set to config")."""
+    controls = E3800_CONTROLS | {"bypass_enable"}
+    device = {
+        "device_key": "DK",
+        "device_name": "E3800LFP",
+        "controls": {c: {} for c in controls} | {"ups_status_hm": {"access": "R"}},
+    }
+    b = HomeAssistantBridge({"discovery_prefix": "homeassistant"}, [device])
+    b.client = MagicMock()
+    b._connected = True
+    b._publish_discovery()
+    for topic, config in _configs(b).items():
+        if topic.split("/")[1] in ("sensor", "binary_sensor"):
+            assert config.get("entity_category") != "config", topic
