@@ -744,6 +744,7 @@
   "stale": {
     "all_capabilities": [
       "binary_sensor/bypass",
+      "binary_sensor/ups",
       "sensor/ac_charging_power",
       "sensor/ac_input_energy",
       "sensor/ac_output_energy",
@@ -789,6 +790,7 @@
     ],
     "minimal": [
       "binary_sensor/bypass",
+      "binary_sensor/ups",
       "select/ac_charging_power",
       "select/ups_charge_threshold",
       "sensor/ac_charging_power",

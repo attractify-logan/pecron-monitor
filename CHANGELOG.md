@@ -16,6 +16,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This project use
 - The Expansion Pack sensor shows On/Off. These units never send `add_bat_status_hm`, so it sat at Unknown and logged a template warning on every state update; it is now derived from the pack slots when the device omits it.
 - Screen Brightness, AC Output Voltage/Frequency Setting, No-Output Auto-Off Timer and Standby Timeout show their labels (`100%`, `120V`, `60Hz`, `Off`) instead of raw indices.
 - Restarting the monitor no longer sets text sensors such as Device Status to an empty string. The bridge reads its retained state back on connect, so the first payload carries every field.
+- UPS Mode is a read-only `binary_sensor` when the device's TSL marks `ups_status_hm` read-only (E1500LFP and E3800LFP do). The switch could never change anything: the monitor refuses to write a read-only control.
+- A Home Assistant command and a poll on the same device no longer share a local TCP session. A poll that finished mid-command closed the socket under the write (`[Errno 9] Bad file descriptor`), and the command fell back to the cloud.
 - `clear_discovery_on_startup` clears discovery only on the first connect. It used to run on every broker reconnect, removing and re-creating every entity.
 
 ### Added

@@ -1,6 +1,7 @@
 """Local polling and lifecycle behavior for :class:`PecronMonitor`."""
 
 import logging
+import threading
 import time
 from typing import Optional
 
@@ -188,6 +189,16 @@ class MonitorPollingMixin:
             log.warning("Re-discovery failed for %s: %s", device_key, e)
             return False
 
+    def _local_session_lock(self, device_key: str):
+        """Lock held for a whole local TCP session (connect, read or write,
+        disconnect). Polls run on the main thread and HA commands on paho's
+        thread, and both share one LocalTransport per device; without this a
+        poll's disconnect could close the socket under a command's write.
+        Re-entrant because rules fired while a poll processes data can send
+        controls on the same thread."""
+        locks = self.__dict__.setdefault("_local_session_locks", {})
+        return locks.setdefault(device_key, threading.RLock())
+
     def _connect_local(self, device_key: str) -> bool:
         """Try to connect local transport for a device.
 
@@ -363,73 +374,76 @@ class MonitorPollingMixin:
             # Try TCP/WiFi local transport
             # Use a fresh session each poll: the device closes sessions ~30 s after connect
             lt = self.local_transports.get(dk)
-            if lt:
-                connected = self._connect_local(dk)
-                if not connected:
-                    # Connection failed — check if we should trigger re-discovery
-                    failure_count = self._local_connect_failures.get(dk, 0)
-                    configured = {d.get("device_key"): d for d in self.config.get("devices", [])}
-                    cfg = configured.get(dk)
-                    has_pinned_ip = cfg and cfg.get("lan_ip")
+            with self._local_session_lock(dk):
+                if lt:
+                    connected = self._connect_local(dk)
+                    if not connected:
+                        # Connection failed — check if we should trigger re-discovery
+                        failure_count = self._local_connect_failures.get(dk, 0)
+                        configured = {
+                            d.get("device_key"): d for d in self.config.get("devices", [])
+                        }
+                        cfg = configured.get(dk)
+                        has_pinned_ip = cfg and cfg.get("lan_ip")
 
-                    if has_pinned_ip:
-                        # Pinned IP: skip re-discovery, fall through to cloud MQTT
-                        log.debug(
-                            "Local TCP connection failed for %s (pinned IP, failure #%d) — skipping to cloud",
-                            dk,
-                            failure_count,
-                        )
-                    elif failure_count >= 5:
-                        # Auto-discovered device with 5+ failures: try re-discovery
-                        log.debug(
-                            "Local TCP connection failed for %s (%d consecutive failures), attempting re-discovery...",
-                            dk,
-                            failure_count,
-                        )
-                        if self._rediscover_device(dk):
-                            # Re-discovered at new IP, try connecting again
-                            lt = self.local_transports.get(dk)  # Get updated transport
-                            if lt:
-                                connected = self._connect_local(dk)
-                    else:
-                        # Auto-discovered device with <5 failures: skip to cloud
-                        log.debug(
-                            "Local TCP connection failed for %s (auto-discovered, failure #%d) — skipping to cloud",
-                            dk,
-                            failure_count,
-                        )
+                        if has_pinned_ip:
+                            # Pinned IP: skip re-discovery, fall through to cloud MQTT
+                            log.debug(
+                                "Local TCP connection failed for %s (pinned IP, failure #%d) — skipping to cloud",
+                                dk,
+                                failure_count,
+                            )
+                        elif failure_count >= 5:
+                            # Auto-discovered device with 5+ failures: try re-discovery
+                            log.debug(
+                                "Local TCP connection failed for %s (%d consecutive failures), attempting re-discovery...",
+                                dk,
+                                failure_count,
+                            )
+                            if self._rediscover_device(dk):
+                                # Re-discovered at new IP, try connecting again
+                                lt = self.local_transports.get(dk)  # Get updated transport
+                                if lt:
+                                    connected = self._connect_local(dk)
+                        else:
+                            # Auto-discovered device with <5 failures: skip to cloud
+                            log.debug(
+                                "Local TCP connection failed for %s (auto-discovered, failure #%d) — skipping to cloud",
+                                dk,
+                                failure_count,
+                            )
 
-                if lt.connected:
-                    try:
-                        kv = lt.read_status()
-                        if kv:
-                            log.debug("Got status via LOCAL TCP for %s", dk)
-                            self._merge_device_data(dk, kv)
+                    if lt.connected:
+                        try:
+                            kv = lt.read_status()
+                            if kv:
+                                log.debug("Got status via LOCAL TCP for %s", dk)
+                                self._merge_device_data(dk, kv)
 
-                            # Only mark as local data if it contains telemetry fields
-                            # E3600/E3800 local TCP returns ONLY settings (14 fields), no telemetry
-                            # We need to let MQTT cloud data be the primary source for these devices
-                            has_telemetry = self._has_telemetry_fields(kv)
-                            if has_telemetry:
-                                self._local_data_keys.add(dk)  # Mark as local data
-                                log.debug("Local TCP data contains telemetry for %s", dk)
-                            else:
-                                log.debug(
-                                    "Local TCP data is settings-only for %s (telemetry from cloud)",
-                                    dk,
-                                )
+                                # Only mark as local data if it contains telemetry fields
+                                # E3600/E3800 local TCP returns ONLY settings (14 fields), no telemetry
+                                # We need to let MQTT cloud data be the primary source for these devices
+                                has_telemetry = self._has_telemetry_fields(kv)
+                                if has_telemetry:
+                                    self._local_data_keys.add(dk)  # Mark as local data
+                                    log.debug("Local TCP data contains telemetry for %s", dk)
+                                else:
+                                    log.debug(
+                                        "Local TCP data is settings-only for %s (telemetry from cloud)",
+                                        dk,
+                                    )
 
-                            self._process_data(dk, kv, source="LOCAL TCP")
-                            # Reset failure counter on successful read
-                            self._local_connect_failures[dk] = 0
-                            # DON'T continue — still need to publish MQTT read request
-                            # E3600/E3800 local TCP only returns settings, need cloud for telemetry
-                    except Exception as e:
-                        log.warning("Local TCP read failed for %s: %s", dk, e)
-                    finally:
-                        # The device drops idle sessions about 30 s after connect,
-                        # so don't leave this one open for a later read or write.
-                        lt.disconnect()
+                                self._process_data(dk, kv, source="LOCAL TCP")
+                                # Reset failure counter on successful read
+                                self._local_connect_failures[dk] = 0
+                                # DON'T continue — still need to publish MQTT read request
+                                # E3600/E3800 local TCP only returns settings, need cloud for telemetry
+                        except Exception as e:
+                            log.warning("Local TCP read failed for %s: %s", dk, e)
+                        finally:
+                            # The device drops idle sessions about 30 s after connect,
+                            # so don't leave this one open for a later read or write.
+                            lt.disconnect()
 
             # Always publish MQTT read request (even if local TCP connected)
             # E3600/E3800 local TCP only returns settings — we NEED cloud MQTT for telemetry

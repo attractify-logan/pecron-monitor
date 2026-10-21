@@ -274,3 +274,28 @@ def test_graceful_disconnect_marks_bridge_offline():
     assert ("offline", True) in _availability(
         type("B", (), {"client": client})(), "pecron/bridge/availability"
     )
+
+
+def test_read_only_ups_mode_is_a_binary_sensor():
+    """Both units' TSL marks ups_status_hm access=R and send_control refuses
+    to write it, so a switch in HA was a control that silently did nothing."""
+    device = {
+        "device_key": "DK",
+        "device_name": "E3800LFP",
+        "controls": {"ups_status_hm": {"id": 27, "access": "R"}},
+    }
+    b = HomeAssistantBridge({"discovery_prefix": "homeassistant"}, [device])
+    b.client = MagicMock()
+    b._connected = True
+    b._publish_discovery()
+    configs = _configs(b)
+    assert "homeassistant/switch/pecron_DK/ups/config" not in configs
+    sensor = configs["homeassistant/binary_sensor/pecron_DK/ups/config"]
+    assert sensor["value_template"] == "{{ value_json.ups_mode }}"
+    assert "command_topic" not in sensor
+    assert "pecron/DK/ups/set" not in b._command_topics
+
+    device["controls"]["ups_status_hm"]["access"] = "RW"
+    b.client.reset_mock()
+    b._publish_discovery()
+    assert "command_topic" in _configs(b)["homeassistant/switch/pecron_DK/ups/config"]

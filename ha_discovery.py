@@ -370,24 +370,45 @@ class HomeAssistantDiscoveryMixin:
                 },
             )
 
-            self._pub_config(
-                "switch",
-                dk,
-                "ups",
-                {
-                    "name": "UPS Mode",
-                    "icon": "mdi:shield-battery",
-                    "command_topic": f"pecron/{dk}/ups/set",
-                    "state_topic": f"pecron/{dk}/state",
-                    "value_template": "{{ value_json.ups_mode }}",
-                    "payload_on": "ON",
-                    "payload_off": "OFF",
-                    "state_on": "ON",
-                    "state_off": "OFF",
-                    "device": dev_info,
-                    "unique_id": f"pecron_{dk}_ups",
-                },
-            )
+            # UPS mode is read-only (access=R) in the E1500LFP and E3800LFP TSL
+            # and send_control refuses to write it; show a switch only when the
+            # TSL says it is writable.
+            ups_info = (device.get("controls") or {}).get("ups_status_hm") or {}
+            if "W" in str(ups_info.get("access", "RW")).upper():
+                self._pub_config(
+                    "switch",
+                    dk,
+                    "ups",
+                    {
+                        "name": "UPS Mode",
+                        "icon": "mdi:shield-battery",
+                        "command_topic": f"pecron/{dk}/ups/set",
+                        "state_topic": f"pecron/{dk}/state",
+                        "value_template": "{{ value_json.ups_mode }}",
+                        "payload_on": "ON",
+                        "payload_off": "OFF",
+                        "state_on": "ON",
+                        "state_off": "OFF",
+                        "device": dev_info,
+                        "unique_id": f"pecron_{dk}_ups",
+                    },
+                )
+            else:
+                self._pub_config(
+                    "binary_sensor",
+                    dk,
+                    "ups",
+                    {
+                        "name": "UPS Mode",
+                        "icon": "mdi:shield-battery",
+                        "state_topic": f"pecron/{dk}/state",
+                        "value_template": "{{ value_json.ups_mode }}",
+                        "payload_on": "ON",
+                        "payload_off": "OFF",
+                        "device": dev_info,
+                        "unique_id": f"pecron_{dk}_ups",
+                    },
+                )
 
             # === E3800-specific automation controls ===
             # These only appear if the device has these capabilities
@@ -1149,7 +1170,7 @@ class HomeAssistantDiscoveryMixin:
                 for f in ["battery", "voltage", "current", "temp", "status"]
             ],
             "switch": ["ac", "dc", "ups", "eco_mode", "touch_lock", "bypass", "auto_dim", "beep"],
-            "binary_sensor": ["expansion_pack", "bypass"],
+            "binary_sensor": ["expansion_pack", "bypass", "ups"],
             "select": ["ac_charging_power", "ups_charge_threshold"],
         }
         for component, keys in ALL_ENTITY_KEYS.items():
