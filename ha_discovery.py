@@ -3,6 +3,9 @@
 import json
 import logging
 
+from constants import DEFAULT_AC_CHARGING_POWER_STEPS
+from helpers import ac_charging_power_steps
+
 
 log = logging.getLogger("pecron")
 
@@ -457,8 +460,17 @@ class HomeAssistantDiscoveryMixin:
                         },
                     )
 
-                # AC charging power level (E3800-only)
+                # AC charging power level (10% steps; E1000LFP has four)
                 if self._has(device, "ac_charging_power_ios"):
+                    steps = ac_charging_power_steps(device)
+                    if steps == DEFAULT_AC_CHARGING_POWER_STEPS:
+                        expression = "(value | int * 10) ~ '%'"
+                    else:
+                        expression = (
+                            "{"
+                            + ", ".join(f"{i}: '{p}%'" for i, p in enumerate(steps))
+                            + "}.get(value | int, '')"
+                        )
                     self._pub_config(
                         "select",
                         dk,
@@ -467,22 +479,8 @@ class HomeAssistantDiscoveryMixin:
                             "name": "AC Charging Power Setting",
                             "icon": "mdi:flash",
                             "state_topic": f"pecron/{dk}/state",
-                            "value_template": _select_template(
-                                "ac_charging_power_ios", "(value | int * 10) ~ '%'"
-                            ),
-                            "options": [
-                                "0%",
-                                "10%",
-                                "20%",
-                                "30%",
-                                "40%",
-                                "50%",
-                                "60%",
-                                "70%",
-                                "80%",
-                                "90%",
-                                "100%",
-                            ],
+                            "value_template": _select_template("ac_charging_power_ios", expression),
+                            "options": [f"{p}%" for p in steps],
                             "command_topic": f"pecron/{dk}/ac_charging_power/set",
                             "device": dev_info,
                             "unique_id": f"pecron_{dk}_ac_charging_power",

@@ -169,6 +169,41 @@ class TestHaCommandDispatch(unittest.TestCase):
         m.send_control.assert_called_once_with("dk0", "ac_charging_power_ios", 4)
 
 
+class TestAcChargingPowerFourStep(unittest.TestCase):
+    """E1000LFP takes four AC charging power steps (25/50/75/100%)."""
+
+    def make_e1000(self):
+        m = make_monitor()
+        m.devices = [dict(m.devices[0], device_name="E1000LFP", product_name="E1000LFP")]
+        return m
+
+    def test_percent_step_maps_to_four_step_index(self):
+        m = self.make_e1000()
+        m._ha_command("dk0", "ac_charging_power", "25%")
+        m.send_control.assert_called_once_with("dk0", "ac_charging_power_ios", 0)
+
+    def test_hundred_percent_maps_to_last_index(self):
+        m = self.make_e1000()
+        m._ha_command("dk0", "ac_charging_power", "100%")
+        m.send_control.assert_called_once_with("dk0", "ac_charging_power_ios", 3)
+
+    def test_percent_not_offered_by_device_is_rejected(self):
+        m = self.make_e1000()
+        m._ha_command("dk0", "ac_charging_power", "10%")
+        m.send_control.assert_not_called()
+
+    def test_raw_index_passthrough(self):
+        m = self.make_e1000()
+        m._ha_command("dk0", "ac_charging_power", "2")
+        m.send_control.assert_called_once_with("dk0", "ac_charging_power_ios", 2)
+
+    def test_cloud_product_name_with_space_matches_model(self):
+        m = make_monitor()
+        m.devices = [dict(m.devices[0], device_name="E1000 LFP", product_name="E1000 LFP")]
+        m._ha_command("dk0", "ac_charging_power", "25%")
+        m.send_control.assert_called_once_with("dk0", "ac_charging_power_ios", 0)
+
+
 class TestHaCommandMapMatchesDiscovery(unittest.TestCase):
     """Regression guard: the dispatch map must cover every command_topic that
     ha_bridge._publish_discovery advertises. If someone adds a switch to
