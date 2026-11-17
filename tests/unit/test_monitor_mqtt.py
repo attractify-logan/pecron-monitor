@@ -54,6 +54,17 @@ def _message(suffix, payload, channel="channel"):
     return FakeMessage(f"q/2/d/{channel}/{suffix}", json.dumps(payload).encode("utf-8"))
 
 
+@pytest.fixture(autouse=True)
+def fresh_paho(monkeypatch):
+    """Give each test its own paho mock.
+
+    pytest 9's monkeypatch undo deletes attributes it set on a MagicMock, and a
+    deleted Mock attribute stays deleted, so patching the shared conftest mock
+    breaks every later test that patches the same name.
+    """
+    monkeypatch.setattr(monitor_module, "mqtt", MagicMock())
+
+
 def _monitor(make_config, **config_updates):
     config = make_config()
     config.update(config_updates)
