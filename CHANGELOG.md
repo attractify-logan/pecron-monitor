@@ -5,6 +5,12 @@ All notable changes to pecron-monitor are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project uses [Semantic Versioning](https://semver.org/).
 
 
+## [Unreleased]
+
+### Fixed
+- E1000LFP AC Charging Power select offers its four steps (25%, 50%, 75%, 100%) instead of the 10% steps. Home Assistant commands for those percentages write the matching device index; other percentages are logged and ignored.
+
+
 ## [0.8.4] - 2026-10-21
 
 ### Fixed

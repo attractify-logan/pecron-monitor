@@ -115,6 +115,18 @@ def test_select_templates_render_options_and_skip_missing_fields():
         assert _render(config["value_template"], {"ac_charging_power_ios": None}) == ""
 
 
+@pytest.mark.parametrize("model", ["E1000LFP", "E1000 LFP"])
+def test_e1000_ac_charging_power_select_offers_four_steps(model):
+    b = _bridge(model=model, controls={"ac_charging_power_ios"})
+    b._publish_discovery()
+    power = _configs(b)["homeassistant/select/pecron_DK/ac_charging_power/config"]
+
+    assert power["options"] == ["25%", "50%", "75%", "100%"]
+    assert _render(power["value_template"], {"ac_charging_power_ios": "0"}) == "25%"
+    assert _render(power["value_template"], {"ac_charging_power_ios": 3}) == "100%"
+    assert _render(power["value_template"], {"ac_charging_power_ios": "5"}) == ""
+
+
 # -------------------- state payload --------------------
 
 

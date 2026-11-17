@@ -5,7 +5,8 @@ import time
 from typing import Any
 
 from cloud_api import set_device_property_rest
-from constants import DEFAULT_CONTROLS
+from constants import DEFAULT_AC_CHARGING_POWER_STEPS, DEFAULT_CONTROLS
+from helpers import ac_charging_power_steps
 from protocol import build_ttlv_write_bool, build_ttlv_write_enum
 
 
@@ -338,18 +339,23 @@ class MonitorControlsMixin:
                     return
             self.send_bool_control(device_key, code, is_on)
         elif control == "ac_charging_power":
+            steps = ac_charging_power_steps(self._find_device(device_key))
             val_str = str(payload).strip()
             is_percent = "%" in val_str
             val_str = val_str.replace("%", "")
             try:
                 val = int(val_str)
-                if is_percent:
+                if is_percent and steps != DEFAULT_AC_CHARGING_POWER_STEPS:
+                    index = steps.index(val) if val in steps else None
+                elif is_percent:
                     index = val // 10
                 else:
                     index = val // 10 if val > 10 else val
 
-                if 0 <= index <= 10:
+                if index is not None and 0 <= index < len(steps):
                     self.send_control(device_key, "ac_charging_power_ios", index)
+                else:
+                    log.warning("Invalid AC charging power payload from HA: %r", payload)
             except (ValueError, TypeError):
                 log.warning("Invalid AC charging power payload from HA: %r", payload)
         elif control == "ups_charge_threshold":

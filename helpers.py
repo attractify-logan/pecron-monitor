@@ -5,6 +5,20 @@ Contains utility functions for data normalization, formatting, and
 safe dictionary navigation used throughout the application.
 """
 
+import re
+
+from constants import AC_CHARGING_POWER_STEPS, DEFAULT_AC_CHARGING_POWER_STEPS
+
+
+def ac_charging_power_steps(device: dict) -> tuple:
+    """AC charging power steps (%) for a device, indexed by ac_charging_power_ios.
+
+    The cloud reports names such as "E1000 LFP", so compare letters and digits only.
+    """
+    name = device.get("device_name") or device.get("product_name") or ""
+    key = re.sub(r"[^A-Z0-9]", "", name.upper())
+    return AC_CHARGING_POWER_STEPS.get(key, DEFAULT_AC_CHARGING_POWER_STEPS)
+
 
 def _truthy(v):
     """Robust truthiness for device values (handles 0/1, '0'/'1', 'on'/'off', etc.)."""

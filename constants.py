@@ -86,6 +86,13 @@ MODEL_BEHAVIOR: dict[str, dict[str, bool]] = {
     "E3600LFP": {"high_freq_effective": False},
 }
 
+# AC charging power steps (%), indexed by ac_charging_power_ios. Models not
+# listed use 10% steps (0-100%); the E1000LFP has four steps.
+DEFAULT_AC_CHARGING_POWER_STEPS: tuple[int, ...] = tuple(range(0, 101, 10))
+AC_CHARGING_POWER_STEPS: dict[str, tuple[int, ...]] = {
+    "E1000LFP": (25, 50, 75, 100),
+}
+
 # Local TCP inter-packet read timeout (seconds), per model. E3600/E3800 split
 # telemetry across 3-4 TTLV packets with up to ~3-4s gaps between them (issue
 # #15). The global default below was tuned to 3.0s in issue #6 for models that
